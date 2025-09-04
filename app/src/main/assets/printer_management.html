@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Printer Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .test-section {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .config-section {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖨️ Printer Management</h1>
+        
+        <!-- Printer Status -->
+        <div class="section">
+            <h3>Printer Status</h3>
+            <div id="printerStatus">
+                <div class="status disconnected">Loading printer status...</div>
+            </div>
+            <button onclick="refreshStatus()">Refresh Status</button>
+        </div>
+
+        <!-- Bluetooth Printer -->
+        <div class="section">
+            <h3>📱 Bluetooth Printer</h3>
+            <div class="form-group">
+                <label>Paired Printers:</label>
+                <select id="btPrinterSelect">
+                    <option value="">Select a printer...</option>
+                </select>
+            </div>
+            <button onclick="connectBluetoothPrinter()">Connect Bluetooth Printer</button>
+            <button onclick="refreshBluetoothPrinters()">Refresh List</button>
+        </div>
+
+        <!-- USB Printer -->
+        <div class="section">
+            <h3>🔌 USB Printer</h3>
+            <div class="form-group">
+                <label>USB Printers:</label>
+                <select id="usbPrinterSelect">
+                    <option value="">Select a printer...</option>
+                </select>
+            </div>
+            <button onclick="connectUsbPrinter()">Connect USB Printer</button>
+            <button onclick="refreshUsbPrinters()">Refresh List</button>
+        </div>
+
+        <!-- LAN/WiFi Printer -->
+        <div class="section">
+            <h3>🌐 LAN/WiFi Printer</h3>
+            <div class="grid">
+                <div class="form-group">
+                    <label>Printer IP Address:</label>
+                    <input type="text" id="lanPrinterIP" placeholder="192.168.1.100" value="192.168.1.100">
+                </div>
+                <div class="form-group">
+                    <label>Port:</label>
+                    <input type="number" id="lanPrinterPort" placeholder="9100" value="9100">
+                </div>
+            </div>
+            <button onclick="connectLanPrinter()">Connect LAN Printer</button>
+        </div>
+
+        <!-- Print Configuration -->
+        <div class="config-section">
+            <h3>⚙️ Print Configuration</h3>
+            <div class="grid">
+                <div class="form-group">
+                    <label>Paper Width:</label>
+                    <select id="paperWidth">
+                        <option value="384">58mm (384 dots)</option>
+                        <option value="576" selected>80mm (576 dots)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Left Margin:</label>
+                    <input type="number" id="leftMargin" value="0" min="0" max="100">
+                </div>
+                <div class="form-group">
+                    <label>Right Margin:</label>
+                    <input type="number" id="rightMargin" value="0" min="0" max="100">
+                </div>
+                <div class="form-group">
+                    <label>Line Spacing:</label>
+                    <input type="number" id="lineSpacing" value="30" min="0" max="100">
+                </div>
+                <div class="form-group">
+                    <label>Width Multiplier:</label>
+                    <input type="number" id="widthMultiplier" value="0" min="0" max="7">
+                </div>
+                <div class="form-group">
+                    <label>Height Multiplier:</label>
+                    <input type="number" id="heightMultiplier" value="0" min="0" max="7">
+                </div>
+            </div>
+            <button onclick="applyPrintConfig()">Apply Configuration</button>
+        </div>
+
+        <!-- Test Printing -->
+        <div class="test-section">
+            <h3>🧪 Test Printing</h3>
+            <div class="form-group">
+                <label>Test Text:</label>
+                <input type="text" id="testText" value="Hello from ElintPOS! This is a test print.">
+            </div>
+            <div class="grid">
+                <button onclick="testPrint()">Print Test Text</button>
+                <button onclick="testBarcode()">Print Test Barcode</button>
+                <button onclick="testQRCode()">Print Test QR Code</button>
+                <button onclick="testInvoice()">Print Test Invoice</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshStatus();
+            refreshBluetoothPrinters();
+            refreshUsbPrinters();
+        });
+
+        // Refresh printer status
+        function refreshStatus() {
+            try {
+                const status = JSON.parse(ElintPOSNative.getPrinterStatus());
+                const statusDiv = document.getElementById('printerStatus');
+                
+                let statusHtml = '';
+                if (status.bt) statusHtml += '<div class="status connected">✅ Bluetooth Printer Connected</div>';
+                if (status.usb) statusHtml += '<div class="status connected">✅ USB Printer Connected</div>';
+                if (status.lan) statusHtml += '<div class="status connected">✅ LAN Printer Connected</div>';
+                
+                if (!status.any) {
+                    statusHtml = '<div class="status disconnected">❌ No printers connected</div>';
+                }
+                
+                statusDiv.innerHTML = statusHtml;
+            } catch (e) {
+                console.error('Error getting printer status:', e);
+            }
+        }
+
+        // Bluetooth printer functions
+        function refreshBluetoothPrinters() {
+            try {
+                const printers = JSON.parse(ElintPOSNative.listPairedPrinters());
+                const select = document.getElementById('btPrinterSelect');
+                select.innerHTML = '<option value="">Select a printer...</option>';
+                
+                printers.forEach(printer => {
+                    const option = document.createElement('option');
+                    option.value = printer.mac;
+                    option.textContent = `${printer.name} (${printer.mac})`;
+                    select.appendChild(option);
+                });
+            } catch (e) {
+                console.error('Error listing Bluetooth printers:', e);
+            }
+        }
+
+        function connectBluetoothPrinter() {
+            const select = document.getElementById('btPrinterSelect');
+            const mac = select.value;
+            
+            if (!mac) {
+                alert('Please select a Bluetooth printer');
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.connectPrinter(mac));
+                if (result.ok) {
+                    alert('Bluetooth printer connected successfully!');
+                    refreshStatus();
+                } else {
+                    alert('Failed to connect: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error connecting Bluetooth printer: ' + e.message);
+            }
+        }
+
+        // USB printer functions
+        function refreshUsbPrinters() {
+            try {
+                const printers = JSON.parse(ElintPOSNative.listUsbPrinters());
+                const select = document.getElementById('usbPrinterSelect');
+                select.innerHTML = '<option value="">Select a printer...</option>';
+                
+                printers.forEach(printer => {
+                    const option = document.createElement('option');
+                    option.value = printer.deviceName;
+                    option.textContent = `${printer.deviceName} (VID:${printer.vendorId}, PID:${printer.productId})`;
+                    select.appendChild(option);
+                });
+            } catch (e) {
+                console.error('Error listing USB printers:', e);
+            }
+        }
+
+        function connectUsbPrinter() {
+            const select = document.getElementById('usbPrinterSelect');
+            const deviceName = select.value;
+            
+            if (!deviceName) {
+                alert('Please select a USB printer');
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.connectUsbPrinter(deviceName));
+                if (result.ok) {
+                    alert('USB printer connected successfully!');
+                    refreshStatus();
+                } else {
+                    alert('Failed to connect: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error connecting USB printer: ' + e.message);
+            }
+        }
+
+        // LAN printer functions
+        function connectLanPrinter() {
+            const ip = document.getElementById('lanPrinterIP').value;
+            const port = parseInt(document.getElementById('lanPrinterPort').value);
+            
+            if (!ip) {
+                alert('Please enter printer IP address');
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.connectLanPrinter(ip, port));
+                if (result.ok) {
+                    alert('LAN printer connected successfully!');
+                    refreshStatus();
+                } else {
+                    alert('Failed to connect: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error connecting LAN printer: ' + e.message);
+            }
+        }
+
+        // Print configuration
+        function applyPrintConfig() {
+            const config = {
+                leftMargin: parseInt(document.getElementById('leftMargin').value),
+                rightMargin: parseInt(document.getElementById('rightMargin').value),
+                lineSpacing: parseInt(document.getElementById('lineSpacing').value),
+                widthMul: parseInt(document.getElementById('widthMultiplier').value),
+                heightMul: parseInt(document.getElementById('heightMultiplier').value),
+                pageWidthDots: parseInt(document.getElementById('paperWidth').value),
+                linesPerPage: 0
+            };
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.setDefaultPrintConfig(
+                    config.leftMargin, config.rightMargin, config.lineSpacing,
+                    config.widthMul, config.heightMul, config.pageWidthDots, config.linesPerPage
+                ));
+                
+                if (result.ok) {
+                    alert('Print configuration applied successfully!');
+                } else {
+                    alert('Failed to apply configuration: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error applying configuration: ' + e.message);
+            }
+        }
+
+        // Test printing functions
+        function testPrint() {
+            const text = document.getElementById('testText').value;
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.printFromWeb(text, 'auto'));
+                if (result.ok) {
+                    alert('Test print sent successfully!');
+                } else {
+                    alert('Print failed: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error printing: ' + e.message);
+            }
+        }
+
+        function testBarcode() {
+            try {
+                const result = JSON.parse(ElintPOSNative.printBarcode('123456789', 73, 50, 2, 0, 'auto'));
+                if (result.ok) {
+                    alert('Test barcode sent successfully!');
+                } else {
+                    alert('Barcode print failed: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error printing barcode: ' + e.message);
+            }
+        }
+
+        function testQRCode() {
+            try {
+                const result = JSON.parse(ElintPOSNative.printQRCode('https://elintpos.in', 3, 0, 'auto'));
+                if (result.ok) {
+                    alert('Test QR code sent successfully!');
+                } else {
+                    alert('QR code print failed: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error printing QR code: ' + e.message);
+            }
+        }
+
+        function testInvoice() {
+            const testSaleData = {
+                "store_name": "ElintPOS Store",
+                "store_address": "123 Main Street",
+                "store_phone": "+1-555-0123",
+                "invoice_number": "INV-001",
+                "sale_date": new Date().toLocaleString(),
+                "cashier_name": "Test Cashier",
+                "items": [
+                    {
+                        "name": "Test Item 1",
+                        "quantity": 2,
+                        "price": 10.50
+                    },
+                    {
+                        "name": "Test Item 2",
+                        "quantity": 1,
+                        "price": 25.00
+                    }
+                ],
+                "subtotal": 46.00,
+                "tax_amount": 4.60,
+                "discount_amount": 0,
+                "total": 50.60,
+                "payment_method": "Cash",
+                "amount_paid": 60.00
+            };
+            
+            const testConfig = {
+                "paperWidth": parseInt(document.getElementById('paperWidth').value),
+                "includeBarcode": true,
+                "includeQR": true,
+                "compactLayout": false
+            };
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.formatAndPrintInvoice(
+                    JSON.stringify(testSaleData),
+                    JSON.stringify(testConfig),
+                    'auto'
+                ));
+                
+                if (result.ok) {
+                    alert('Test invoice sent successfully!');
+                } else {
+                    alert('Invoice print failed: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error printing invoice: ' + e.message);
+            }
+        }
+    </script>
+</body>
+</html>
