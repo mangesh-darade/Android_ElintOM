@@ -40,6 +40,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -59,6 +60,12 @@ import com.elintpos.wrapper.escpos.LanEscPosPrinter
 import com.elintpos.wrapper.escpos.ReceiptFormatter
 import com.elintpos.wrapper.pdf.PdfDownloader
 import com.elintpos.wrapper.export.CsvExporter
+import android.content.SharedPreferences
+import android.app.ActivityManager
+import android.app.ActivityManager.RunningAppProcessInfo
+import android.app.KeyguardManager
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 
 class MainActivity : ComponentActivity() {
 
@@ -76,6 +83,8 @@ class MainActivity : ComponentActivity() {
 	private var cameraImageUri: Uri? = null
 
 	private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
+	private lateinit var genericPermissionsLauncher: ActivityResultLauncher<Array<String>>
+	private var pendingPermissionsCallback: ((Map<String, Boolean>) -> Unit)? = null
 
 	private val notificationPermissionLauncher =
 		registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -106,6 +115,23 @@ class MainActivity : ComponentActivity() {
 	private var pdfDownloader: PdfDownloader = PdfDownloader(this)
 	private var csvExporter: CsvExporter = CsvExporter(this)
 
+	private val prefs: SharedPreferences by lazy { getSharedPreferences("settings", Context.MODE_PRIVATE) }
+
+	private fun isAutoStartEnabled(): Boolean = prefs.getBoolean("auto_start_enabled", true)
+	private fun setAutoStartEnabled(enabled: Boolean) { prefs.edit().putBoolean("auto_start_enabled", enabled).apply() }
+	private fun isKioskEnabled(): Boolean = prefs.getBoolean("kiosk_enabled", false)
+	private fun setKioskEnabled(enabled: Boolean) { prefs.edit().putBoolean("kiosk_enabled", enabled).apply() }
+
+	private fun ensureLockTaskWhitelisted() {
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			try {
+				val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+				val admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
+				dpm.setLockTaskPackages(admin, arrayOf(packageName))
+			} catch (_: Exception) {}
+		}
+	}
+
 	data class PrintConfig(
 		var leftMargin: Int = 0,
 		var rightMargin: Int = 0,
@@ -126,7 +152,84 @@ class MainActivity : ComponentActivity() {
 		webView = WebView(this)
 		setContentView(webView)
 
+		// Generic multi-permission launcher used by JS bridge
+		genericPermissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+			try {
+				pendingPermissionsCallback?.invoke(result)
+			} finally {
+				pendingPermissionsCallback = null
+			}
+		}
+
 		webView.addJavascriptInterface(object {
+			@android.webkit.JavascriptInterface
+			fun getKioskEnabled(): Boolean { return isKioskEnabled() }
+
+			@android.webkit.JavascriptInterface
+			fun setKioskEnabledJs(enabled: Boolean): String {
+				return try {
+					setKioskEnabled(enabled)
+					if (enabled) {
+						ensureLockTaskWhitelisted()
+						try {
+							if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) startLockTask()
+						} catch (_: Exception) {}
+					} else {
+						try {
+							if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) stopLockTask()
+						} catch (_: Exception) {}
+					}
+					"{\"ok\":true,\"enabled\":${'$'}enabled}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+			@android.webkit.JavascriptInterface
+			fun getAutoStartEnabled(): Boolean { return isAutoStartEnabled() }
+
+			@android.webkit.JavascriptInterface
+			fun setAutoStartEnabledJs(enabled: Boolean): String {
+				return try { setAutoStartEnabled(enabled); "{\"ok\":true,\"enabled\":${'$'}enabled}" } catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+			@android.webkit.JavascriptInterface
+			fun requestAllPermissions(): String {
+				return try {
+					val perms = buildCommonPermissions()
+					runOnUiThread {
+						requestGenericPermissions(perms) { res ->
+							val granted = res.filterValues { it }.keys
+							val denied = res.filterValues { !it }.keys
+							Toast.makeText(this@MainActivity, "Permissions: granted=${'$'}granted denied=${'$'}denied", Toast.LENGTH_SHORT).show()
+						}
+					}
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun checkPermissions(permsJson: String?): String {
+				return try {
+					val list = parsePermissionsJson(permsJson)
+					val granted = org.json.JSONArray()
+					val denied = org.json.JSONArray()
+					list.forEach { p ->
+						val g = ContextCompat.checkSelfPermission(this@MainActivity, p) == android.content.pm.PackageManager.PERMISSION_GRANTED
+						if (g) granted.put(p) else denied.put(p)
+					}
+					"{\"ok\":true,\"granted\":${'$'}granted,\"denied\":${'$'}denied}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+
+			@android.webkit.JavascriptInterface
+			fun requestPermissions(permsJson: String?): String {
+				return try {
+					val array = parsePermissionsJson(permsJson).toTypedArray()
+					runOnUiThread { requestGenericPermissions(array) { } }
+					"{\"ok\":true}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
 			@android.webkit.JavascriptInterface
 			fun requestNotificationsPermission() {
 				requestNotificationsPermissionIfNeeded()
@@ -763,6 +866,17 @@ class MainActivity : ComponentActivity() {
 				if (request == null) return false
 				val uri = request.url
 
+				// If the URL looks like a receipt view, open it in dedicated ReceiptActivity
+				try {
+					val path = uri.encodedPath ?: ""
+					if (path.contains("/pos/view/") || path.contains("/sales/view/")) {
+						val intent = Intent(this@MainActivity, com.elintpos.wrapper.viewer.ReceiptActivity::class.java)
+						intent.putExtra(com.elintpos.wrapper.viewer.ReceiptActivity.EXTRA_URL, uri.toString())
+						startActivity(intent)
+						return true
+					}
+				} catch (_: Exception) {}
+
 				val scheme = uri.scheme ?: return false
 				when (scheme) {
 					"tel", "mailto", "upi" -> {
@@ -834,8 +948,8 @@ class MainActivity : ComponentActivity() {
 					})();
 				"""
 				view?.evaluateJavascript(js, null)
-				// If this looks like a receipt view, trigger a safe print after render
-				if (url != null && (url.indexOf("/pos/view/") >= 0 || url.indexOf("/sales/view/") >= 0)) {
+				// If this looks like a receipt view or blank print page, trigger a safe print after render
+				if (url != null && (url == "about:blank" || url.indexOf("/pos/view/") >= 0 || url.indexOf("/sales/view/") >= 0)) {
 					view?.postDelayed({
 						try {
 							view.evaluateJavascript(
@@ -866,6 +980,13 @@ class MainActivity : ComponentActivity() {
 				val transport = resultMsg?.obj as? WebView.WebViewTransport
 				transport?.webView = this@MainActivity.webView
 				resultMsg?.sendToTarget()
+				// Fallback: some web apps open a blank window then call print(). Trigger print dialog to mimic browser behavior.
+				this@MainActivity.webView.postDelayed({
+					try {
+						val pm = getSystemService(Context.PRINT_SERVICE) as PrintManager
+						pm.print("POS Print", webView.createPrintDocumentAdapter("POS Print"), PrintAttributes.Builder().build())
+					} catch (_: Exception) {}
+				}, 500)
 				return true
 			}
 			override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
@@ -1008,6 +1129,56 @@ class MainActivity : ComponentActivity() {
 		}
 	}
 
+	private fun buildCommonPermissions(): Array<String> {
+		val list = mutableListOf<String>()
+		// Camera & audio
+		list.add(android.Manifest.permission.CAMERA)
+		list.add(android.Manifest.permission.RECORD_AUDIO)
+		// Location
+		list.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+		list.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+		// Bluetooth
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+			list.add(android.Manifest.permission.BLUETOOTH_CONNECT)
+			list.add(android.Manifest.permission.BLUETOOTH_SCAN)
+		}
+		// Storage / media (scoped)
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			list.add(android.Manifest.permission.READ_MEDIA_IMAGES)
+			list.add(android.Manifest.permission.READ_MEDIA_VIDEO)
+			list.add(android.Manifest.permission.READ_MEDIA_AUDIO)
+		} else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+			list.add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+			if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+				list.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+			}
+		}
+		// Notifications (Android 13+)
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			list.add(android.Manifest.permission.POST_NOTIFICATIONS)
+		}
+		// Nearby Wi-Fi (Android 13+)
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+			list.add(android.Manifest.permission.NEARBY_WIFI_DEVICES)
+		}
+		return list.distinct().toTypedArray()
+	}
+
+	private fun parsePermissionsJson(permsJson: String?): List<String> {
+		return try {
+			if (permsJson.isNullOrBlank()) return buildCommonPermissions().toList()
+			val arr = org.json.JSONArray(permsJson)
+			val out = mutableListOf<String>()
+			for (i in 0 until arr.length()) { val p = arr.optString(i); if (p.isNotBlank()) out.add(p) }
+			if (out.isEmpty()) buildCommonPermissions().toList() else out
+		} catch (_: Exception) { buildCommonPermissions().toList() }
+	}
+
+	private fun requestGenericPermissions(perms: Array<String>, callback: (Map<String, Boolean>) -> Unit) {
+		pendingPermissionsCallback = callback
+		genericPermissionsLauncher.launch(perms)
+	}
+
 	override fun onSaveInstanceState(outState: Bundle) {
 		super.onSaveInstanceState(outState)
 		webView.saveState(outState)
@@ -1017,6 +1188,9 @@ class MainActivity : ComponentActivity() {
 		if (::webView.isInitialized && webView.canGoBack()) {
 			webView.goBack()
 		} else {
+			if (isKioskEnabled()) {
+				return
+			}
 			super.onBackPressed()
 		}
 	}

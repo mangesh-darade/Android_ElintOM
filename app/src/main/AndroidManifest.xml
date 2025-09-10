@@ -7,12 +7,22 @@
 	<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 	<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 	<uses-permission android:name="android.permission.CAMERA" />
+	<!-- Microphone for audio capture / WebRTC -->
+	<uses-permission android:name="android.permission.RECORD_AUDIO" />
 	<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 	<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+	<!-- Android 13+ scoped media permissions -->
+	<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+	<uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+	<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 	<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 	<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+	<!-- Start app automatically after device boot -->
+	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+	<!-- Android 13+ for Wi‑Fi scanning without location -->
+	<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
 	<!-- Bluetooth for classic printers (XP-F800, ESC/POS) -->
 	<uses-permission android:name="android.permission.BLUETOOTH" />
@@ -28,7 +38,7 @@
 	<application
 		android:allowBackup="true"
 		android:icon="@mipmap/ic_launcher"
-		android:label="ElintPOS"
+		android:label="ElintOM"
 		android:roundIcon="@mipmap/ic_launcher_round"
 		android:supportsRtl="true"
 		android:usesCleartextTraffic="true"
@@ -39,6 +49,7 @@
 		<activity
 			android:name=".MainActivity"
 			android:exported="true"
+			android:launchMode="singleTask"
 			android:screenOrientation="landscape"
 			android:theme="@style/Theme.ElintPOS"
 			android:resizeableActivity="false">
@@ -72,6 +83,11 @@
 			android:exported="false"
 			android:theme="@style/Theme.ElintPOS" />
 
+		<activity
+			android:name=".viewer.ReceiptActivity"
+			android:exported="false"
+			android:theme="@style/Theme.ElintPOS" />
+
 		<provider
 			android:name="androidx.core.content.FileProvider"
 			android:authorities="${applicationId}.fileprovider"
@@ -81,6 +97,42 @@
 				android:name="android.support.FILE_PROVIDER_PATHS"
 				android:resource="@xml/file_paths" />
 		</provider>
+
+		<!-- Auto-start on boot -->
+		<receiver
+			android:name=".BootReceiver"
+			android:enabled="true"
+			android:exported="false">
+			<intent-filter>
+				<action android:name="android.intent.action.BOOT_COMPLETED" />
+				<action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+				<!-- When the user unlocks the device -->
+				<action android:name="android.intent.action.USER_PRESENT" />
+				<action android:name="android.intent.action.USER_UNLOCKED" />
+				<!-- After app updates -->
+				<action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+			</intent-filter>
+		</receiver>
+
+		<!-- Foreground service that brings app to front on boot/unlock -->
+		<service
+			android:name=".StartupForegroundService"
+			android:exported="false"
+			android:foregroundServiceType="mediaProjection|dataSync">
+		</service>
+
+		<!-- Device Admin for kiosk/lock task -->
+		<receiver
+			android:name=".MyDeviceAdminReceiver"
+			android:permission="android.permission.BIND_DEVICE_ADMIN"
+			android:exported="true">
+			<meta-data
+				android:name="android.app.device_admin"
+				android:resource="@xml/device_admin_receiver" />
+			<intent-filter>
+				<action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+			</intent-filter>
+		</receiver>
 
 	</application>
 </manifest>
