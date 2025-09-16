@@ -2,4 +2,6 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
 	<cache-path name="cache" path="." />
 	<external-cache-path name="external_cache" path="." />
+	<!-- Allow sharing crash logs stored under filesDir/crash -->
+	<files-path name="files_crash" path="crash/" />
 </paths>

@@ -163,6 +163,55 @@ class MainActivity : ComponentActivity() {
 
 		webView.addJavascriptInterface(object {
 			@android.webkit.JavascriptInterface
+			fun listCrashLogs(): String {
+				return try {
+					val dir = java.io.File(filesDir, "crash")
+					if (!dir.exists()) return "{\"ok\":true,\"files\":[]}"
+					val arr = org.json.JSONArray()
+					dir.listFiles()?.sortedByDescending { it.lastModified() }?.forEach { f ->
+						val o = org.json.JSONObject()
+						o.put("name", f.name)
+						o.put("path", f.absolutePath)
+						o.put("size", f.length())
+						o.put("lastModified", f.lastModified())
+						arr.put(o)
+					}
+					"{\"ok\":true,\"files\":${'$'}arr}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+
+			@android.webkit.JavascriptInterface
+			fun readCrashLog(path: String): String {
+				return try {
+					val file = java.io.File(path)
+					if (!file.exists()) return "{\"ok\":false,\"msg\":\"Not found\"}"
+					val txt = file.readText()
+					val o = org.json.JSONObject()
+					o.put("ok", true)
+					o.put("name", file.name)
+					o.put("path", file.absolutePath)
+					o.put("content", txt)
+					o.toString()
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+
+			@android.webkit.JavascriptInterface
+			fun shareCrashLog(path: String): String {
+				return try {
+					val file = java.io.File(path)
+					if (!file.exists()) return "{\"ok\":false,\"msg\":\"Not found\"}"
+					val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "${'$'}packageName.fileprovider", file)
+					val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+						type = "text/plain"
+						putExtra(android.content.Intent.EXTRA_SUBJECT, "Crash log: ${'$'}{file.name}")
+						putExtra(android.content.Intent.EXTRA_STREAM, uri)
+						addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+					}
+					startActivity(android.content.Intent.createChooser(intent, "Share crash log"))
+					"{\"ok\":true}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+			@android.webkit.JavascriptInterface
 			fun getKioskEnabled(): Boolean { return isKioskEnabled() }
 
 			@android.webkit.JavascriptInterface
@@ -869,6 +918,11 @@ class MainActivity : ComponentActivity() {
 				// If the URL looks like a receipt view, open it in dedicated ReceiptActivity
 				try {
 					val path = uri.encodedPath ?: ""
+					// Block accidental logout redirects that can occur around print flows
+					if (path.contains("/auth/logout") || path.endsWith("/logout")) {
+						Toast.makeText(this@MainActivity, "Blocked logout redirect", Toast.LENGTH_SHORT).show()
+						return true
+					}
 					if (path.contains("/pos/view/") || path.contains("/sales/view/")) {
 						val intent = Intent(this@MainActivity, com.elintpos.wrapper.viewer.ReceiptActivity::class.java)
 						intent.putExtra(com.elintpos.wrapper.viewer.ReceiptActivity.EXTRA_URL, uri.toString())
@@ -934,8 +988,8 @@ class MainActivity : ComponentActivity() {
 								var bl = document.querySelectorAll('a[target="_blank"]');
 								for(var i=0;i<bl.length;i++){ bl[i].setAttribute('target','_self'); }
 							}catch(_){ }
-							// Bind POS action buttons to Android system print
-							var selectors = ['.cmdprint', '.cmdprint1', '.splitcheck'];
+							// Bind common POS action buttons to Android system print
+							var selectors = ['.cmdprint', '.cmdprint1', '.splitcheck', '.btn-print', '#btnPrint'];
 							selectors.forEach(function(sel){
 								var els = document.querySelectorAll(sel);
 								for(var i=0;i<els.length;i++){
@@ -944,6 +998,29 @@ class MainActivity : ComponentActivity() {
 									}, true);
 								}
 							});
+
+							// Also catch generic buttons with visible text like "Print", "Submit & Print"
+							function attachByText(root){
+								try{
+									var candidates = root.querySelectorAll('button, input[type="button"], input[type="submit"], a.btn, .btn');
+									for(var i=0;i<candidates.length;i++){
+										var el = candidates[i];
+										if(el.__elintposBound) continue;
+										var txt = (el.innerText||el.value||'').trim().toLowerCase();
+										if(!txt) continue;
+										if(txt === 'print' || txt.indexOf('submit & print') >= 0 || txt.indexOf('submit and print') >= 0 || txt.indexOf('print bill') >= 0 || txt.indexOf('print receipt') >= 0){
+											el.__elintposBound = true;
+											el.addEventListener('click', function(){ try{ ElintPOSNative.systemPrint('POS Print'); }catch(_){ try{ window.print(); }catch(__){} } }, true);
+										}
+									}
+								}catch(_){ }
+							}
+							attachByText(document);
+							// Observe future DOM changes (pages that inject buttons after submit)
+							try{
+								var mo = new MutationObserver(function(muts){ for(var j=0;j<muts.length;j++){ if(muts[j].addedNodes){ for(var k=0;k<muts[j].addedNodes.length;k++){ var n=muts[j].addedNodes[k]; if(n && n.querySelectorAll) attachByText(n); } } } });
+								mo.observe(document.documentElement, {childList:true, subtree:true});
+							}catch(_){ }
 						}catch(e){}
 					})();
 				"""

@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 	<uses-permission android:name="android.permission.INTERNET" />
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -21,6 +22,7 @@
 	<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 	<!-- Start app automatically after device boot -->
 	<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 	<!-- Android 13+ for Wi‑Fi scanning without location -->
 	<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
@@ -36,6 +38,7 @@
 	<uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
 	<application
+		android:name=".ElintApp"
 		android:allowBackup="true"
 		android:icon="@mipmap/ic_launcher"
 		android:label="ElintOM"
@@ -47,16 +50,22 @@
 		android:networkSecurityConfig="@xml/network_security_config">
 
 		<activity
+			android:name=".SplashActivity"
+			android:exported="true"
+			android:theme="@style/Theme.ElintPOS">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity>
+
+		<activity
 			android:name=".MainActivity"
 			android:exported="true"
 			android:launchMode="singleTask"
 			android:screenOrientation="landscape"
 			android:theme="@style/Theme.ElintPOS"
 			android:resizeableActivity="false">
-			<intent-filter>
-				<action android:name="android.intent.action.MAIN" />
-				<category android:name="android.intent.category.LAUNCHER" />
-			</intent-filter>
 
 			<!-- Deep links for devmeenatshi.elintpos.in -->
 			<intent-filter android:autoVerify="true">
@@ -102,7 +111,7 @@
 		<receiver
 			android:name=".BootReceiver"
 			android:enabled="true"
-			android:exported="false">
+			android:exported="true">
 			<intent-filter>
 				<action android:name="android.intent.action.BOOT_COMPLETED" />
 				<action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
@@ -118,7 +127,7 @@
 		<service
 			android:name=".StartupForegroundService"
 			android:exported="false"
-			android:foregroundServiceType="mediaProjection|dataSync">
+			android:foregroundServiceType="shortService">
 		</service>
 
 		<!-- Device Admin for kiosk/lock task -->
