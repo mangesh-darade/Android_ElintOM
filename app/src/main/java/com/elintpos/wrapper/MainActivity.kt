@@ -204,6 +204,15 @@ class MainActivity : ComponentActivity() {
 		// Create main layout with WebView and settings button
 		val mainLayout = android.widget.RelativeLayout(this)
 		webView = WebView(this)
+		webView.layoutParams = android.widget.RelativeLayout.LayoutParams(
+			android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+			android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
+		).apply {
+			addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
+			addRule(android.widget.RelativeLayout.ALIGN_PARENT_BOTTOM)
+			addRule(android.widget.RelativeLayout.ALIGN_PARENT_START)
+			addRule(android.widget.RelativeLayout.ALIGN_PARENT_END)
+		}
 		mainLayout.addView(webView)
 		
 		// Add floating settings button
@@ -2713,6 +2722,81 @@ class MainActivity : ComponentActivity() {
 		}
 
 		view.webChromeClient = object : WebChromeClient() {
+            override fun onJsAlert(
+                view: WebView?, url: String?, message: String?, result: android.webkit.JsResult?
+            ): Boolean {
+                try {
+                    val dlg = androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Alert")
+                        .setMessage(message ?: "")
+                        .setCancelable(false)
+                        .setPositiveButton(android.R.string.ok) { d, _ ->
+                            try { result?.confirm() } catch (_: Exception) {}
+                            d.dismiss()
+                        }
+                        .create()
+                    dlg.show()
+                } catch (_: Exception) {
+                    try { result?.confirm() } catch (_: Exception) {}
+                }
+                return true
+            }
+
+            override fun onJsConfirm(
+                view: WebView?, url: String?, message: String?, result: android.webkit.JsResult?
+            ): Boolean {
+                try {
+                    val dlg = androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Confirm")
+                        .setMessage(message ?: "")
+                        .setPositiveButton(android.R.string.ok) { d, _ ->
+                            try { result?.confirm() } catch (_: Exception) {}
+                            d.dismiss()
+                        }
+                        .setNegativeButton(android.R.string.cancel) { d, _ ->
+                            try { result?.cancel() } catch (_: Exception) {}
+                            d.dismiss()
+                        }
+                        .create()
+                    dlg.show()
+                } catch (_: Exception) {
+                    try { result?.cancel() } catch (_: Exception) {}
+                }
+                return true
+            }
+
+            override fun onJsPrompt(
+                view: WebView?, url: String?, message: String?, defaultValue: String?, result: android.webkit.JsPromptResult?
+            ): Boolean {
+                return try {
+                    val input = android.widget.EditText(this@MainActivity)
+                    input.setText(defaultValue ?: "")
+                    val container = android.widget.LinearLayout(this@MainActivity)
+                    container.orientation = android.widget.LinearLayout.VERTICAL
+                    val lp = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    lp.setMargins(32, 16, 32, 0)
+                    input.layoutParams = lp
+                    container.addView(input)
+
+                    val dlg = androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                        .setTitle(message ?: "Prompt")
+                        .setView(container)
+                        .setPositiveButton(android.R.string.ok) { d, _ ->
+                            try { result?.confirm(input.text?.toString() ?: "") } catch (_: Exception) {}
+                            d.dismiss()
+                        }
+                        .setNegativeButton(android.R.string.cancel) { d, _ ->
+                            try { result?.cancel() } catch (_: Exception) {}
+                            d.dismiss()
+                        }
+                        .create()
+                    dlg.show()
+                    true
+                } catch (_: Exception) {
+                    try { result?.cancel() } catch (_: Exception) {}
+                    true
+                }
+            }
 			override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
 				// Open new window requests in the same WebView
 				val transport = resultMsg?.obj as? WebView.WebViewTransport

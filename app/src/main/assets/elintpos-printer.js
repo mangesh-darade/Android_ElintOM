@@ -531,6 +531,141 @@ class ElintPOSPrinter {
     }
 
     /**
+     * Format and print an 80mm thermal invoice via ESC/POS
+     * data: { shopName, invoiceNo, date, items:[{name, qty, price}], totals:{subtotal, tax, total}, footer }
+     * options: { pageWidthDots=576, lineSpacing=30, widthMul=1, heightMul=1 }
+     */
+    printInvoice80(data = {}, options = {}) {
+        if (!this.isAvailable) { alert('Printer not available'); return false; }
+        try {
+            const cfg = Object.assign({ pageWidthDots: 576, lineSpacing: 30, widthMul: 1, heightMul: 1 }, options||{});
+            try {
+                if (ElintPOSNative && ElintPOSNative.setDefaultPrintConfig) {
+                    ElintPOSNative.setDefaultPrintConfig(0, 0, cfg.lineSpacing, cfg.widthMul, cfg.heightMul, cfg.pageWidthDots, 0);
+                }
+            } catch(_) {}
+
+            const shop = (data.shopName || 'MY SHOP').toString();
+            const inv = (data.invoiceNo || '').toString();
+            const dt  = (data.date || new Date().toLocaleString()).toString();
+            const items = Array.isArray(data.items) ? data.items : [];
+            const totals = data.totals || {};
+            const footer = (data.footer || 'Thank you!').toString();
+
+            // Helper for fixed-width columns (approx 32 chars per line typical at scale=1)
+            const LINE = 32;
+            const padRight = (s, n) => (s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length));
+            const padLeft  = (s, n) => (s.length >= n ? s.slice(0, n) : ' '.repeat(n - s.length) + s);
+
+            let out = '';
+            out += shop + '\n';
+            if (inv) out += 'INVOICE #' + inv + '\n';
+            out += dt + '\n';
+            out += '-'.repeat(LINE) + '\n';
+            out += padRight('Item', 18) + padLeft('Qty', 4) + ' ' + padLeft('Total', 8) + '\n';
+            out += '-'.repeat(LINE) + '\n';
+            items.forEach(it => {
+                const name = ('' + (it.name ?? '')).trim();
+                const qty  = Number(it.qty ?? 1);
+                const price = Number(it.price ?? 0);
+                const total = (qty * price).toFixed(2);
+                const nameLine = (name.length > 18) ? name.slice(0,18) : name;
+                out += padRight(nameLine, 18) + padLeft(String(qty), 4) + ' ' + padLeft(total, 8) + '\n';
+            });
+            out += '-'.repeat(LINE) + '\n';
+            if (totals.subtotal != null) out += padRight('Subtotal', 23) + padLeft(Number(totals.subtotal).toFixed(2), 9) + '\n';
+            if (totals.tax != null)      out += padRight('Tax', 23) + padLeft(Number(totals.tax).toFixed(2), 9) + '\n';
+            if (totals.total != null)    out += padRight('TOTAL', 23) + padLeft(Number(totals.total).toFixed(2), 9) + '\n';
+            out += '\n' + footer + '\n';
+
+            try {
+                if (ElintPOSNative && ElintPOSNative.printFromWeb) {
+                    ElintPOSNative.printFromWeb(out, 'auto');
+                    return true;
+                }
+            } catch(_) {}
+            // Fallback to our inline selector
+            this.renderInlinePrinterSelector(out);
+            return false;
+        } catch (e) {
+            console.error('printInvoice80 failed', e);
+            alert('Unable to print invoice');
+            return false;
+        }
+    }
+
+    /**
+     * Render and print an A4 invoice using system print (HTML/CSS)
+     * htmlOrData: string HTML, or data object similar to printInvoice80
+     */
+    printInvoiceA4(htmlOrData) {
+        try {
+            let html = '';
+            if (typeof htmlOrData === 'string') {
+                html = htmlOrData;
+            } else {
+                const d = htmlOrData || {};
+                const items = Array.isArray(d.items) ? d.items : [];
+                const totals = d.totals || {};
+                const shop = (d.shopName || 'MY SHOP');
+                const inv  = (d.invoiceNo ? ('Invoice #' + d.invoiceNo) : '');
+                const dt   = (d.date || new Date().toLocaleString());
+                html = `
+<div class="invoice">
+  <h2>${shop}</h2>
+  <div class="row"><div>${inv}</div><div class="muted">${dt}</div></div>
+  <table>
+    <thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
+    <tbody>
+      ${items.map(it => `<tr><td>${(it.name||'')}</td><td>${Number(it.qty||1)}</td><td>${(Number(it.price||0)*Number(it.qty||1)).toFixed(2)}</td></tr>`).join('')}
+      <tr class="total-row"><td colspan="2">TOTAL</td><td>${(totals.total!=null?Number(totals.total).toFixed(2):'').toString()}</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">${(d.footer||'Thank you!')}</p>
+</div>`;
+            }
+
+            const wrapId = 'elintpos-a4-print-wrap';
+            let wrap = document.getElementById(wrapId);
+            if (!wrap) {
+                wrap = document.createElement('div');
+                wrap.id = wrapId;
+                document.body.appendChild(wrap);
+            }
+            wrap.innerHTML = `
+<style>
+@media print {
+  @page { size: A4; margin: 12mm; }
+  .invoice { width: 180mm; margin: 0 auto; font-family: Arial, sans-serif; font-size: 12pt; }
+  .row { display: flex; justify-content: space-between; }
+  .muted { color: #666; font-size: 10pt; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border-bottom: 1px solid #ddd; padding: 6px 4px; text-align: left; }
+  th:last-child, td:last-child { text-align: right; }
+  .total-row td { border-top: 2px solid #000; font-weight: bold; }
+}
+</style>
+${html}`;
+
+            try {
+                if (ElintPOSNative && ElintPOSNative.systemPrint) {
+                    ElintPOSNative.systemPrint('Invoice A4');
+                } else {
+                    window.print();
+                }
+                return true;
+            } catch(_) {
+                try { window.print(); } catch(__) {}
+                return false;
+            }
+        } catch (e) {
+            console.error('printInvoiceA4 failed', e);
+            alert('Unable to print A4 invoice');
+            return false;
+        }
+    }
+
+    /**
      * Show a toast message
      */
     showToast(message) {

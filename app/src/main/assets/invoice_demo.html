@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invoice Demo</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:16px;background:#f7f7fb;color:#111}
+    .card{max-width:960px;margin:0 auto;background:#fff;border:1px solid #eee;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.06)}
+    .card-header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+    .title{font-weight:700}
+    .content{padding:16px 20px}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .col{flex:1 1 280px}
+    label{display:block;font-size:12px;color:#555;margin-bottom:6px}
+    input,textarea,select{width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;outline:none}
+    textarea{min-height:76px}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border-bottom:1px solid #eee;padding:8px 6px;text-align:left}
+    th:last-child,td:last-child{text-align:right}
+    .actions{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+    .btn{border:none;background:#4f46e5;color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
+    .btn.secondary{background:#11182733;color:#111}
+    .muted{color:#6b7280;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="card-header">
+      <div class="title">Invoice Builder</div>
+      <div class="muted">Demo for 80mm and A4 printing</div>
+    </div>
+    <div class="content">
+      <div class="row">
+        <div class="col">
+          <label>Shop Name</label>
+          <input id="shop" value="MY SHOP">
+        </div>
+        <div class="col">
+          <label>Invoice #</label>
+          <input id="inv" value="12345">
+        </div>
+        <div class="col">
+          <label>Date</label>
+          <input id="date" value="">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Items (JSON array)</label>
+          <textarea id="items">[{"name":"Apple","qty":2,"price":1.5},{"name":"Milk","qty":1,"price":1.5}]</textarea>
+        </div>
+        <div class="col">
+          <label>Totals (JSON)</label>
+          <textarea id="totals">{"subtotal":4.50,"tax":0.23,"total":4.73}</textarea>
+        </div>
+        <div class="col">
+          <label>Footer</label>
+          <input id="footer" value="Thank you!">
+        </div>
+      </div>
+
+      <div style="margin-top:10px">
+        <table>
+          <thead><tr><th>Preview Columns (80mm)</th><th class="muted">Hint</th></tr></thead>
+          <tbody>
+            <tr><td>Item (<=18 chars)</td><td class="muted">Truncated to 18 for neat columns</td></tr>
+            <tr><td>Qty (<=4 chars)</td><td class="muted">Right aligned</td></tr>
+            <tr><td>Total (<=8 chars)</td><td class="muted">Right aligned amount</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn secondary" id="btn-validate">Validate JSON</button>
+      <button class="btn" id="btn-print-80">Print 80mm</button>
+      <button class="btn" id="btn-print-a4">Print A4</button>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      var dt = document.getElementById('date');
+      if(!dt.value) dt.value = new Date().toLocaleString();
+
+      function readData(){
+        var data = {
+          shopName: document.getElementById('shop').value || 'MY SHOP',
+          invoiceNo: document.getElementById('inv').value || '',
+          date: document.getElementById('date').value || new Date().toLocaleString(),
+          items: [],
+          totals: {},
+          footer: document.getElementById('footer').value || 'Thank you!'
+        };
+        try { data.items = JSON.parse(document.getElementById('items').value || '[]'); } catch(e){ alert('Items JSON invalid'); throw e; }
+        try { data.totals = JSON.parse(document.getElementById('totals').value || '{}'); } catch(e){ alert('Totals JSON invalid'); throw e; }
+        return data;
+      }
+
+      document.getElementById('btn-validate').addEventListener('click', function(){
+        try { readData(); alert('JSON OK'); } catch(_) {}
+      });
+
+      document.getElementById('btn-print-80').addEventListener('click', function(){
+        try {
+          var data = readData();
+          if (window.elintposPrinter && typeof window.elintposPrinter.printInvoice80 === 'function') {
+            window.elintposPrinter.printInvoice80(data, { pageWidthDots: 576 });
+          } else {
+            alert('elintposPrinter not available');
+          }
+        } catch(e) { alert('Error: ' + e.message); }
+      });
+
+      document.getElementById('btn-print-a4').addEventListener('click', function(){
+        try {
+          var data = readData();
+          if (window.elintposPrinter && typeof window.elintposPrinter.printInvoiceA4 === 'function') {
+            window.elintposPrinter.printInvoiceA4(data);
+          } else {
+            // Basic fallback HTML
+            var html = '<div class="invoice"><h2>'+data.shopName+'</h2></div>';
+            document.body.insertAdjacentHTML('beforeend', html);
+            window.print();
+          }
+        } catch(e) { alert('Error: ' + e.message); }
+      });
+    })();
+  </script>
+</body>
+</html>
+
+
