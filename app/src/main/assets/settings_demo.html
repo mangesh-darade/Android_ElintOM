@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background-color: #6200EA;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .button:hover {
+            background-color: #7C4DFF;
+        }
+        .button.secondary {
+            background-color: #757575;
+        }
+        .button.secondary:hover {
+            background-color: #9E9E9E;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖨️ Printer Settings Demo</h1>
+        <p>This page demonstrates how to access printer configuration settings from the web interface.</p>
+        
+        <div class="section">
+            <h3>Settings Access</h3>
+            <p>You can access printer settings in multiple ways:</p>
+            <ul>
+                <li><strong>Settings Icon:</strong> Click the floating settings icon in the top-right corner of the app</li>
+                <li><strong>Long Press:</strong> Long press the settings icon for advanced options</li>
+                <li><strong>Web Interface:</strong> Use the buttons below to access settings programmatically</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h3>Quick Actions</h3>
+            <button class="button" onclick="showPrinterSettings()">Show Printer Settings Popup</button>
+            <button class="button" onclick="showQuickSettings()">Show Quick Settings</button>
+            <button class="button" onclick="openPrinterSettingsUI()">Open Printer Settings UI</button>
+            <button class="button" onclick="openPrinterManagement()">Open Full Printer Management</button>
+            <button class="button" onclick="openWebPrintDemo()">Open Web Print Demo</button>
+            <button class="button" onclick="openDialogPrintDemo()">Open Dialog Print Demo</button>
+        </div>
+
+        <div class="section">
+            <h3>Testing & Diagnostics</h3>
+            <button class="button secondary" onclick="testAllPrinters()">Test All Printers</button>
+            <button class="button secondary" onclick="runDiagnostics()">Run Diagnostics</button>
+            <button class="button secondary" onclick="getPrinterStatus()">Get Printer Status</button>
+        </div>
+
+        <div class="section">
+            <h3>Profile Management</h3>
+            <button class="button secondary" onclick="listProfiles()">List All Profiles</button>
+            <button class="button secondary" onclick="getStatistics()">Get Statistics</button>
+            <button class="button secondary" onclick="exportSettings()">Export Settings</button>
+        </div>
+
+        <div class="section">
+            <h3>Status Display</h3>
+            <div id="statusDisplay">
+                <p>Click any button above to see the results here...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showPrinterSettings() {
+            try {
+                const result = JSON.parse(ElintPOSNative.showPrinterSettingsPopup());
+                updateStatus("Printer settings popup opened", result);
+            } catch (e) {
+                updateStatus("Error opening printer settings: " + e.message, null);
+            }
+        }
+
+        function showQuickSettings() {
+            try {
+                const result = JSON.parse(ElintPOSNative.showQuickSettingsPopup());
+                updateStatus("Quick settings popup opened", result);
+            } catch (e) {
+                updateStatus("Error opening quick settings: " + e.message, null);
+            }
+        }
+
+        function openPrinterManagement() {
+            try {
+                const result = JSON.parse(ElintPOSNative.openPrinterManagement());
+                updateStatus("Opening full printer management interface...", result);
+            } catch (e) {
+                updateStatus("Error opening printer management: " + e.message, null);
+            }
+        }
+
+        function openWebPrintDemo() {
+            try {
+                window.location.href = "file:///android_asset/web_print_demo.html";
+            } catch (e) {
+                updateStatus("Error opening web print demo: " + e.message, null);
+            }
+        }
+
+        function openDialogPrintDemo() {
+            try {
+                window.location.href = "file:///android_asset/dialog_print_demo.html";
+            } catch (e) {
+                updateStatus("Error opening dialog print demo: " + e.message, null);
+            }
+        }
+
+        function openPrinterSettingsUI() {
+            try {
+                const result = JSON.parse(ElintPOSNative.openPrinterSettingsUI());
+                updateStatus("Opening printer settings UI...", result);
+            } catch (e) {
+                updateStatus("Error opening printer settings UI: " + e.message, null);
+            }
+        }
+
+        function testAllPrinters() {
+            try {
+                const result = JSON.parse(ElintPOSNative.testAllPrinterProfiles());
+                if (result.ok) {
+                    const results = result.results;
+                    const successCount = results.filter(r => r.testResult.success).length;
+                    const totalCount = results.length;
+                    updateStatus(`Tested ${successCount}/${totalCount} printers successfully`, result);
+                } else {
+                    updateStatus("Test failed: " + result.msg, result);
+                }
+            } catch (e) {
+                updateStatus("Error testing printers: " + e.message, null);
+            }
+        }
+
+        function runDiagnostics() {
+            try {
+                const result = JSON.parse(ElintPOSNative.runPrinterDiagnostics());
+                if (result.ok) {
+                    const diagnostics = result.diagnostics;
+                    const status = `Diagnostics Complete:
+Bluetooth: ${diagnostics.bluetooth_available ? 'Available' : 'Not Available'}
+USB Devices: ${diagnostics.usb_devices_count}
+Network: ${diagnostics.network_connected ? 'Connected' : 'Disconnected'}
+Epson SDK: ${diagnostics.epson_sdk_available ? 'Available' : 'Not Available'}
+XPrinter SDK: ${diagnostics.xprinter_sdk_available ? 'Available' : 'Not Available'}`;
+                    updateStatus(status, result);
+                } else {
+                    updateStatus("Diagnostics failed: " + result.msg, result);
+                }
+            } catch (e) {
+                updateStatus("Error running diagnostics: " + e.message, null);
+            }
+        }
+
+        function getPrinterStatus() {
+            try {
+                const result = JSON.parse(ElintPOSNative.getPrinterStatus());
+                const status = `Printer Status:
+Bluetooth: ${result.bt ? 'Connected' : 'Disconnected'}
+USB: ${result.usb ? 'Connected' : 'Disconnected'}
+LAN: ${result.lan ? 'Connected' : 'Disconnected'}
+Any Connected: ${result.any ? 'Yes' : 'No'}`;
+                updateStatus(status, result);
+            } catch (e) {
+                updateStatus("Error getting printer status: " + e.message, null);
+            }
+        }
+
+        function listProfiles() {
+            try {
+                const result = JSON.parse(ElintPOSNative.getAllPrinterProfiles());
+                if (result.ok) {
+                    const profiles = result.profiles;
+                    let status = `Found ${profiles.length} printer profiles:\n`;
+                    profiles.forEach(profile => {
+                        status += `- ${profile.name} (${profile.type}) ${profile.isDefault ? '[DEFAULT]' : ''}\n`;
+                    });
+                    updateStatus(status, result);
+                } else {
+                    updateStatus("Failed to list profiles: " + result.msg, result);
+                }
+            } catch (e) {
+                updateStatus("Error listing profiles: " + e.message, null);
+            }
+        }
+
+        function getStatistics() {
+            try {
+                const result = JSON.parse(ElintPOSNative.getPrinterConfigStatistics());
+                if (result.ok) {
+                    const stats = result.statistics;
+                    const status = `Printer Configuration Statistics:
+Total Profiles: ${stats.totalProfiles}
+Enabled Profiles: ${stats.enabledProfiles}
+Auto-Connect Profiles: ${stats.autoConnectProfiles}
+Last Used: ${stats.lastUsed}
+Profiles by Type: ${JSON.stringify(stats.profilesByType)}`;
+                    updateStatus(status, result);
+                } else {
+                    updateStatus("Failed to get statistics: " + result.msg, result);
+                }
+            } catch (e) {
+                updateStatus("Error getting statistics: " + e.message, null);
+            }
+        }
+
+        function exportSettings() {
+            try {
+                const result = JSON.parse(ElintPOSNative.exportPrinterProfiles());
+                if (result.ok) {
+                    updateStatus("Settings exported successfully! (In a real app, this would save to a file)", result);
+                } else {
+                    updateStatus("Export failed: " + result.msg, result);
+                }
+            } catch (e) {
+                updateStatus("Error exporting settings: " + e.message, null);
+            }
+        }
+
+        function updateStatus(message, result) {
+            const statusDiv = document.getElementById('statusDisplay');
+            statusDiv.innerHTML = `
+                <h4>Result:</h4>
+                <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto;">${message}</pre>
+                ${result ? `<h4>Raw Response:</h4><pre style="background-color: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto;">${JSON.stringify(result, null, 2)}</pre>` : ''}
+            `;
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus("Settings demo page loaded. Click any button above to test printer configuration features.", null);
+        });
+    </script>
+</body>
+</html>

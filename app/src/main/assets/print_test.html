@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Print Test - ElintPOS</title>
+    <style>
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            margin: 20px;
+            background: #f5f7fa;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .btn-secondary {
+            background: #6c757d;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .content {
+            line-height: 1.6;
+            margin: 20px 0;
+        }
+        .invoice {
+            border: 2px solid #333;
+            padding: 20px;
+            margin: 20px 0;
+            background: white;
+        }
+        .invoice-header {
+            text-align: center;
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+        .invoice-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 5px 0;
+            border-bottom: 1px dotted #ccc;
+        }
+        .total {
+            font-weight: bold;
+            font-size: 16px;
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 2px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖨️ Print Test Page</h1>
+            <p>Test the ElintPOS printer functionality with different content types</p>
+        </div>
+
+        <div class="test-section">
+            <h3>Print Buttons</h3>
+            <p>Click any of these buttons to test different print scenarios:</p>
+            
+            <button class="btn" onclick="testBasicPrint()">Print Basic Text</button>
+            <button class="btn" onclick="testInvoicePrint()">Print Invoice</button>
+            <button class="btn" onclick="testNativePrint()">Native Print Dialog</button>
+            <button class="btn" onclick="testEscPosPrint()">Test ESC/POS Printing</button>
+            <button class="btn btn-secondary" onclick="testWindowPrint()">window.print() Test</button>
+        </div>
+
+        <div class="test-section">
+            <h3>Sample Invoice</h3>
+            <div class="invoice" id="sample-invoice">
+                <div class="invoice-header">ELINTPOS RESTAURANT</div>
+                <div>123 Main Street, City, State 12345</div>
+                <div>Phone: (555) 123-4567</div>
+                <div>Date: <span id="current-date"></span></div>
+                <div>Order #: 001234</div>
+                <div style="margin: 20px 0; border-top: 1px solid #333;"></div>
+                
+                <div class="invoice-item">
+                    <span>Burger Deluxe</span>
+                    <span>$12.99</span>
+                </div>
+                <div class="invoice-item">
+                    <span>French Fries</span>
+                    <span>$4.99</span>
+                </div>
+                <div class="invoice-item">
+                    <span>Soft Drink</span>
+                    <span>$2.99</span>
+                </div>
+                
+                <div class="total">
+                    <div class="invoice-item">
+                        <span>Subtotal:</span>
+                        <span>$20.97</span>
+                    </div>
+                    <div class="invoice-item">
+                        <span>Tax (8.5%):</span>
+                        <span>$1.78</span>
+                    </div>
+                    <div class="invoice-item">
+                        <span>TOTAL:</span>
+                        <span>$22.75</span>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px; text-align: center; font-size: 12px;">
+                    Thank you for your business!
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>Printer Status</h3>
+            <div id="printer-status">Loading printer status...</div>
+            <button class="btn btn-secondary" onclick="refreshPrinterStatus()">Refresh Status</button>
+            <button class="btn btn-primary" onclick="openSdkInstaller()">Install SDKs</button>
+        </div>
+
+        <div class="test-section">
+            <h3>Instructions</h3>
+            <ol>
+                <li><strong>Basic Print:</strong> Prints simple text content</li>
+                <li><strong>Invoice Print:</strong> Prints the formatted invoice above</li>
+                <li><strong>Native Print Dialog:</strong> Opens Android's native print dialog</li>
+                <li><strong>ESC/POS Test:</strong> Tests ESC/POS printing without vendor SDKs</li>
+                <li><strong>window.print():</strong> Tests the overridden window.print() function</li>
+            </ol>
+            <p><strong>Note:</strong> Make sure you have a printer connected via USB or Bluetooth before testing.</p>
+        </div>
+    </div>
+
+    <!-- Include the ElintPOS Printer library -->
+    <script src="elintpos-printer.js"></script>
+    
+    <script>
+        // Set current date
+        document.getElementById('current-date').textContent = new Date().toLocaleDateString();
+
+        // Test functions
+        function testBasicPrint() {
+            const content = `
+================================
+BASIC PRINT TEST
+================================
+
+This is a test of the basic print functionality.
+
+Timestamp: ${new Date().toLocaleString()}
+Device: ElintPOS Android App
+
+This text should be printed to your connected printer.
+
+================================
+            `;
+            
+            if (typeof elintposPrinter !== 'undefined') {
+                elintposPrinter.printContent(content);
+            } else {
+                alert('ElintPOS Printer library not loaded');
+            }
+        }
+
+        function testInvoicePrint() {
+            const invoiceElement = document.getElementById('sample-invoice');
+            const content = `
+================================
+ELINTPOS RESTAURANT
+================================
+123 Main Street, City, State 12345
+Phone: (555) 123-4567
+Date: ${new Date().toLocaleDateString()}
+Order #: 001234
+================================
+
+Burger Deluxe          $12.99
+French Fries           $4.99
+Soft Drink             $2.99
+--------------------------------
+Subtotal:              $20.97
+Tax (8.5%):            $1.78
+--------------------------------
+TOTAL:                 $22.75
+
+Thank you for your business!
+
+Printed: ${new Date().toLocaleString()}
+================================
+            `;
+            
+            if (typeof elintposPrinter !== 'undefined') {
+                elintposPrinter.printContent(content);
+            } else {
+                alert('ElintPOS Printer library not loaded');
+            }
+        }
+
+        function testNativePrint() {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.showNativePrintDialog === 'function') {
+                try {
+                    const result = ElintPOSNative.showNativePrintDialog();
+                    const response = JSON.parse(result);
+                    if (response.ok) {
+                        console.log('Native print dialog opened successfully');
+                    } else {
+                        alert('Failed to open native print dialog: ' + response.msg);
+                    }
+                } catch (e) {
+                    alert('Error opening native print dialog: ' + e.message);
+                }
+            } else {
+                alert('Native print dialog not available');
+            }
+        }
+
+        function testEscPosPrint() {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.testEscPosPrinting === 'function') {
+                try {
+                    const result = ElintPOSNative.testEscPosPrinting();
+                    const response = JSON.parse(result);
+                    if (response.ok) {
+                        alert('ESC/POS printing test successful!\n\n' + response.msg);
+                    } else {
+                        alert('ESC/POS printing test failed:\n\n' + response.msg);
+                    }
+                } catch (e) {
+                    alert('Error running ESC/POS test: ' + e.message);
+                }
+            } else {
+                alert('ESC/POS test not available');
+            }
+        }
+
+        function testWindowPrint() {
+            // This will trigger the overridden window.print() function
+            window.print();
+        }
+
+        function openSdkInstaller() {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.showSdkInstaller === 'function') {
+                try {
+                    const result = ElintPOSNative.showSdkInstaller();
+                    const response = JSON.parse(result);
+                    if (response.ok) {
+                        console.log('SDK installer opened successfully');
+                    } else {
+                        alert('Failed to open SDK installer: ' + response.msg);
+                    }
+                } catch (e) {
+                    alert('Error opening SDK installer: ' + e.message);
+                }
+            } else {
+                alert('SDK installer not available');
+            }
+        }
+
+        function refreshPrinterStatus() {
+            const statusElement = document.getElementById('printer-status');
+            statusElement.textContent = 'Loading printer status...';
+            
+            if (typeof elintposPrinter !== 'undefined') {
+                elintposPrinter.getAvailablePrinters()
+                    .then(status => {
+                        let statusHtml = '<h4>Connected Printers:</h4>';
+                        
+                        if (status.usb) {
+                            statusHtml += '<div style="color: green;">✓ USB Printer Connected</div>';
+                        }
+                        if (status.bluetooth) {
+                            statusHtml += '<div style="color: green;">✓ Bluetooth Printer Connected</div>';
+                        }
+                        if (status.lan) {
+                            statusHtml += '<div style="color: green;">✓ LAN Printer Connected</div>';
+                        }
+                        
+                        if (!status.usb && !status.bluetooth && !status.lan) {
+                            statusHtml += '<div style="color: red;">⚠ No printers connected</div>';
+                        }
+                        
+                        if (status.availableUsbDevices && status.availableUsbDevices.length > 0) {
+                            statusHtml += '<h4>Available USB Devices:</h4>';
+                            status.availableUsbDevices.forEach(device => {
+                                statusHtml += `<div>• ${device.deviceName} (VID: 0x${device.vendorId.toString(16).toUpperCase()}, PID: 0x${device.productId.toString(16).toUpperCase()})</div>`;
+                            });
+                        }
+                        
+                        statusElement.innerHTML = statusHtml;
+                    })
+                    .catch(error => {
+                        statusElement.innerHTML = '<div style="color: red;">Error loading printer status: ' + error + '</div>';
+                    });
+            } else {
+                statusElement.innerHTML = '<div style="color: red;">ElintPOS Printer library not loaded</div>';
+            }
+        }
+
+        // Load printer status on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshPrinterStatus();
+        });
+    </script>
+</body>
+</html>

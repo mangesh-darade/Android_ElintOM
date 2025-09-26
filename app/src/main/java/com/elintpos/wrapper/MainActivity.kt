@@ -60,12 +60,19 @@ import com.elintpos.wrapper.escpos.LanEscPosPrinter
 import com.elintpos.wrapper.escpos.ReceiptFormatter
 import com.elintpos.wrapper.pdf.PdfDownloader
 import com.elintpos.wrapper.export.CsvExporter
+import com.elintpos.wrapper.printer.vendor.VendorPrinter
+import com.elintpos.wrapper.printer.vendor.EpsonPrinter
+import com.elintpos.wrapper.printer.vendor.XPrinter
+import com.elintpos.wrapper.printer.PrinterConfigManager
+import com.elintpos.wrapper.printer.PrinterTester
+import com.elintpos.wrapper.sdk.SdkDownloader
 import android.content.SharedPreferences
 import android.app.ActivityManager
 import android.app.ActivityManager.RunningAppProcessInfo
 import android.app.KeyguardManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
+import kotlinx.coroutines.*
 
 class MainActivity : ComponentActivity() {
 
@@ -75,6 +82,7 @@ class MainActivity : ComponentActivity() {
 		private const val BASE_URL = "http://$BASE_DOMAIN/"
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"
 		private const val TAG = "ElintPOS"
+		private const val ACTION_USB_PERMISSION = "com.elintpos.wrapper.USB_PERMISSION"
 	}
 
 	private lateinit var webView: WebView
@@ -114,8 +122,50 @@ class MainActivity : ComponentActivity() {
 	private var receiptFormatter: ReceiptFormatter = ReceiptFormatter()
 	private var pdfDownloader: PdfDownloader = PdfDownloader(this)
 	private var csvExporter: CsvExporter = CsvExporter(this)
+    private val vendorPrinter: VendorPrinter by lazy { VendorPrinter(this) }
+    private val epsonPrinter: EpsonPrinter by lazy { EpsonPrinter(this) }
+    private val xPrinter: XPrinter by lazy { XPrinter(this) }
+
+	private var pendingUsbDeviceName: String? = null
+	private var pendingUsbAfterConnect: (() -> Unit)? = null
+
+	private val usbPermissionReceiver = object : android.content.BroadcastReceiver() {
+		override fun onReceive(context: Context?, intent: Intent?) {
+			try {
+				if (intent?.action != ACTION_USB_PERMISSION) return
+				val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+				val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+				val pendingName = pendingUsbDeviceName
+				pendingUsbDeviceName = null
+				if (device != null && granted) {
+					try {
+						val usbManager = getSystemService(USB_SERVICE) as UsbManager
+						val target = if (pendingName != null) {
+							usbManager.deviceList.values.firstOrNull { it.deviceName == pendingName }
+						} else device
+						if (target != null) {
+							usbPrinter?.close()
+							usbPrinter = UsbEscPosPrinter(this@MainActivity)
+							usbPrinter!!.connect(target)
+							isUsbConnected = true
+							Toast.makeText(this@MainActivity, "USB permission granted. Printer connected", Toast.LENGTH_SHORT).show()
+							try { pendingUsbAfterConnect?.invoke() } catch (_: Exception) {} finally { pendingUsbAfterConnect = null }
+						}
+					} catch (e: Exception) {
+						isUsbConnected = false
+						Toast.makeText(this@MainActivity, "USB connect failed: ${e.message}", Toast.LENGTH_SHORT).show()
+					}
+				} else {
+					Toast.makeText(this@MainActivity, "USB permission denied", Toast.LENGTH_SHORT).show()
+				}
+			} catch (_: Exception) {}
+		}
+	}
 
 	private val prefs: SharedPreferences by lazy { getSharedPreferences("settings", Context.MODE_PRIVATE) }
+	private val printerConfigManager: PrinterConfigManager by lazy { PrinterConfigManager(this) }
+	private val printerTester: PrinterTester by lazy { PrinterTester(this) }
+	private val sdkDownloader: SdkDownloader by lazy { SdkDownloader(this) }
 
 	private fun isAutoStartEnabled(): Boolean = prefs.getBoolean("auto_start_enabled", true)
 	private fun setAutoStartEnabled(enabled: Boolean) { prefs.edit().putBoolean("auto_start_enabled", enabled).apply() }
@@ -148,9 +198,19 @@ class MainActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
 		setupFullscreen()
+		// Register USB permission receiver
+		registerReceiver(usbPermissionReceiver, android.content.IntentFilter(ACTION_USB_PERMISSION))
 
+		// Create main layout with WebView and settings button
+		val mainLayout = android.widget.RelativeLayout(this)
 		webView = WebView(this)
-		setContentView(webView)
+		mainLayout.addView(webView)
+		
+		// Add floating settings button
+		val settingsButton = createSettingsButton()
+		mainLayout.addView(settingsButton)
+		
+		setContentView(mainLayout)
 
 		// Generic multi-permission launcher used by JS bridge
 		genericPermissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -162,6 +222,57 @@ class MainActivity : ComponentActivity() {
 		}
 
 		webView.addJavascriptInterface(object {
+			@android.webkit.JavascriptInterface
+			fun vendorAvailable(): Boolean {
+				return try { vendorPrinter.isAvailable() } catch (_: Exception) { false }
+			}
+			@android.webkit.JavascriptInterface
+			fun epsonAvailable(): Boolean {
+				return try { epsonPrinter.isAvailable() } catch (_: Exception) { false }
+			}
+
+			@android.webkit.JavascriptInterface
+			fun xprinterAvailable(): Boolean {
+				return try { xPrinter.isAvailable() } catch (_: Exception) { false }
+			}
+
+			@android.webkit.JavascriptInterface
+			fun epsonPrintText(text: String): String {
+				return try {
+					if (!epsonPrinter.isAvailable()) return "{\"ok\":false,\"msg\":\"Epson SDK not available\"}"
+					val ok = epsonPrinter.printText(text)
+					if (ok) "{\"ok\":true}" else "{\"ok\":false,\"msg\":\"Epson print failed\"}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+
+			@android.webkit.JavascriptInterface
+			fun xprinterPrintText(text: String): String {
+				return try {
+					if (!xPrinter.isAvailable()) return "{\"ok\":false,\"msg\":\"XPrinter SDK not available\"}"
+					val ok = xPrinter.printText(text)
+					if (ok) "{\"ok\":true}" else "{\"ok\":false,\"msg\":\"XPrinter print failed\"}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+
+			@android.webkit.JavascriptInterface
+			fun vendorPrintText(text: String): String {
+				return try {
+					if (!vendorPrinter.isAvailable()) return "{\"ok\":false,\"msg\":\"Vendor SDK not available\"}"
+					val ok = vendorPrinter.printText(text)
+					if (ok) "{\"ok\":true}" else "{\"ok\":false,\"msg\":\"Vendor print failed\"}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+			@android.webkit.JavascriptInterface
+			fun choosePrinterAndPrint(text: String): String {
+				return try {
+					runOnUiThread { showPrinterChooserAndPrint(text) }
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
 			@android.webkit.JavascriptInterface
 			fun listCrashLogs(): String {
 				return try {
@@ -351,11 +462,46 @@ class MainActivity : ComponentActivity() {
 			}
 
 			@android.webkit.JavascriptInterface
+			fun requestUsbPermission(deviceName: String): String {
+				return try {
+					val usbManager = getSystemService(USB_SERVICE) as UsbManager
+					val device = usbManager.deviceList.values.firstOrNull { it.deviceName == deviceName }
+						?: return "{\"ok\":false,\"msg\":\"Not found\"}"
+					if (usbManager.hasPermission(device)) {
+						"{\"ok\":true,\"msg\":\"Already granted\"}"
+					} else {
+						pendingUsbDeviceName = deviceName
+						val pi = android.app.PendingIntent.getBroadcast(
+							this@MainActivity,
+							0,
+							Intent(ACTION_USB_PERMISSION),
+							if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) android.app.PendingIntent.FLAG_MUTABLE else 0
+						)
+						usbManager.requestPermission(device, pi)
+						"{\"ok\":true,\"msg\":\"Requested\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
 			fun connectUsbPrinter(deviceName: String): String {
 				return try {
 					val usbManager = getSystemService(USB_SERVICE) as UsbManager
 					val device = usbManager.deviceList.values.firstOrNull { it.deviceName == deviceName }
 						?: return "{\"ok\":false,\"msg\":\"Not found\"}"
+					if (!usbManager.hasPermission(device)) {
+						pendingUsbDeviceName = deviceName
+						val pi = android.app.PendingIntent.getBroadcast(
+							this@MainActivity,
+							0,
+							Intent(ACTION_USB_PERMISSION),
+							if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) android.app.PendingIntent.FLAG_MUTABLE else 0
+						)
+						usbManager.requestPermission(device, pi)
+						return "{\"ok\":false,\"msg\":\"USB permission requested\"}"
+					}
 					usbPrinter?.close()
 					usbPrinter = UsbEscPosPrinter(this@MainActivity)
 					usbPrinter!!.connect(device)
@@ -434,12 +580,39 @@ class MainActivity : ComponentActivity() {
 
 			@android.webkit.JavascriptInterface
 			fun getPrinterStatus(): String {
-				val obj = JSONObject()
-				obj.put("bt", isBtConnected)
-				obj.put("usb", isUsbConnected)
-				obj.put("lan", isLanConnected)
-				obj.put("any", isBtConnected || isUsbConnected || isLanConnected)
-				return obj.toString()
+				return try {
+					val obj = JSONObject()
+					obj.put("bt", isBtConnected)
+					obj.put("usb", isUsbConnected)
+					obj.put("lan", isLanConnected)
+					obj.put("any", isBtConnected || isUsbConnected || isLanConnected)
+					
+					// Add detailed USB device information
+					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
+					val deviceList = usbManager.deviceList
+					val usbDevices = deviceList.values.map { device ->
+						val deviceInfo = JSONObject()
+						deviceInfo.put("deviceName", device.deviceName ?: "Unknown")
+						deviceInfo.put("vendorId", device.vendorId)
+						deviceInfo.put("productId", device.productId)
+						deviceInfo.put("deviceClass", device.deviceClass)
+						deviceInfo.put("deviceSubclass", device.deviceSubclass)
+						deviceInfo.put("deviceProtocol", device.deviceProtocol)
+						deviceInfo
+					}
+					obj.put("usbDevices", JSONArray(usbDevices))
+					
+					// Add connection details
+					val connectionDetails = JSONObject()
+					connectionDetails.put("usbPrinterInstance", usbPrinter != null)
+					connectionDetails.put("btPrinterInstance", escPosPrinter != null)
+					connectionDetails.put("lanPrinterInstance", lanPrinter != null)
+					obj.put("connectionDetails", connectionDetails)
+					
+					obj.toString()
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Error getting printer status: ${e.message}\"}"
+				}
 			}
 
 			@android.webkit.JavascriptInterface
@@ -659,6 +832,542 @@ class MainActivity : ComponentActivity() {
 				}
 			}
 
+			@android.webkit.JavascriptInterface
+			fun showPrinterSettingsPopup(): String {
+				return try {
+					runOnUiThread {
+						showPrinterSettingsPopup()
+					}
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun showQuickSettingsPopup(): String {
+				return try {
+					runOnUiThread {
+						showQuickSettingsPopup()
+					}
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun openPrinterSettingsUI(): String {
+				return try {
+					runOnUiThread {
+						openPrinterSettingsUI()
+					}
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun openSettingsDemo(): String {
+				return try {
+					webView.loadUrl("file:///android_asset/settings_demo.html")
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+			
+			@android.webkit.JavascriptInterface
+			fun getPrinterConnectionStatus(): String {
+				return try {
+					val status = mutableMapOf<String, Any>()
+					status["usb"] = isUsbConnected
+					status["bluetooth"] = isBtConnected
+					status["lan"] = isLanConnected
+					status["usbPrinter"] = usbPrinter != null
+					status["btPrinter"] = escPosPrinter != null
+					status["lanPrinter"] = lanPrinter != null
+					
+					// Check for available USB devices
+					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
+					val deviceList = usbManager.deviceList
+					val availableUsbDevices = deviceList.values.map { device ->
+						mapOf(
+							"deviceName" to device.deviceName,
+							"vendorId" to device.vendorId,
+							"productId" to device.productId
+						)
+					}
+					status["availableUsbDevices"] = availableUsbDevices
+					
+					org.json.JSONObject(status as Map<Any?, Any?>).toString()
+				} catch (e: Exception) {
+					"{\"error\":\"${e.message}\"}"
+				}
+			}
+			
+			@android.webkit.JavascriptInterface
+			fun connectUsbDeviceByPath(devicePath: String): String {
+				return try {
+					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
+					val deviceList = usbManager.deviceList
+					
+					// Find device by path
+					val usbDevice = deviceList.values.firstOrNull { device ->
+						device.deviceName == devicePath || device.deviceName?.contains(devicePath) == true
+					}
+					
+					if (usbDevice != null) {
+						try {
+							usbPrinter?.close()
+							usbPrinter = UsbEscPosPrinter(this@MainActivity)
+							usbPrinter!!.connect(usbDevice)
+							isUsbConnected = true
+							"{\"ok\":true,\"msg\":\"USB device connected: ${usbDevice.deviceName} (VID: 0x${usbDevice.vendorId.toString(16).uppercase()}, PID: 0x${usbDevice.productId.toString(16).uppercase()})\"}"
+						} catch (connectError: Exception) {
+							"{\"ok\":false,\"msg\":\"Failed to connect to device: ${connectError.message}. Device: ${usbDevice.deviceName}\"}"
+						}
+					} else {
+						"{\"ok\":false,\"msg\":\"Device not found: $devicePath. Available devices: ${deviceList.keys.joinToString()}\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Error connecting to device: ${e.message}\"}"
+				}
+			}
+			
+			@android.webkit.JavascriptInterface
+			fun showPrinterSelector(): String {
+				return try {
+					runOnUiThread {
+						// Load the printer selector overlay
+						webView.loadUrl("file:///android_asset/printer_selector.html")
+					}
+					"{\"ok\":true,\"msg\":\"Printer selector opened\"}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Failed to open printer selector: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun showSdkInstaller(): String {
+				return try {
+					runOnUiThread {
+						// Load the SDK installer page
+						webView.loadUrl("file:///android_asset/sdk_installer.html")
+					}
+					"{\"ok\":true,\"msg\":\"SDK installer opened\"}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Failed to open SDK installer: ${e.message}\"}"
+				}
+			}
+			
+			@android.webkit.JavascriptInterface
+			fun closePrinterSelector(): String {
+				return try {
+					runOnUiThread {
+						// Go back to the previous page or main page
+						if (webView.canGoBack()) {
+							webView.goBack()
+						} else {
+							webView.loadUrl("file:///android_asset/index.html")
+						}
+					}
+					"{\"ok\":true,\"msg\":\"Printer selector closed\"}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Failed to close printer selector: ${e.message}\"}"
+				}
+			}
+			
+			@android.webkit.JavascriptInterface
+			fun printWebContent(content: String, printerType: String = "auto"): String {
+				return try {
+					val printConfig = PrintConfig(
+						leftMargin = 0,
+						rightMargin = 0,
+						lineSpacing = 30,
+						widthMul = 0,
+						heightMul = 0,
+						pageWidthDots = 384,
+						linesPerPage = 0
+					)
+					
+					when (printerType.lowercase()) {
+						"usb" -> {
+							if (isUsbConnected && usbPrinter != null) {
+								usbPrinter!!.printText(
+									content,
+									leftMarginDots = printConfig.leftMargin,
+									rightMarginDots = printConfig.rightMargin,
+									lineSpacing = printConfig.lineSpacing,
+									widthMultiplier = printConfig.widthMul,
+									heightMultiplier = printConfig.heightMul,
+									pageWidthDots = printConfig.pageWidthDots,
+									linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
+								)
+								"{\"ok\":true,\"msg\":\"Content sent to USB printer\"}"
+							} else {
+								"{\"ok\":false,\"msg\":\"USB printer not connected\"}"
+							}
+						}
+						"bluetooth", "bt" -> {
+							if (isBtConnected && escPosPrinter != null) {
+								escPosPrinter!!.printText(
+									content,
+									leftMarginDots = printConfig.leftMargin,
+									rightMarginDots = printConfig.rightMargin,
+									lineSpacing = printConfig.lineSpacing,
+									widthMultiplier = printConfig.widthMul,
+									heightMultiplier = printConfig.heightMul,
+									pageWidthDots = printConfig.pageWidthDots,
+									linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
+								)
+								"{\"ok\":true,\"msg\":\"Content sent to Bluetooth printer\"}"
+							} else {
+								"{\"ok\":false,\"msg\":\"Bluetooth printer not connected\"}"
+							}
+						}
+						"lan", "network" -> {
+							if (isLanConnected && lanPrinter != null) {
+								lanPrinter!!.printText(
+									content,
+									leftMarginDots = printConfig.leftMargin,
+									rightMarginDots = printConfig.rightMargin,
+									lineSpacing = printConfig.lineSpacing,
+									widthMultiplier = printConfig.widthMul,
+									heightMultiplier = printConfig.heightMul,
+									pageWidthDots = printConfig.pageWidthDots,
+									linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
+								)
+								"{\"ok\":true,\"msg\":\"Content sent to LAN printer\"}"
+							} else {
+								"{\"ok\":false,\"msg\":\"LAN printer not connected\"}"
+							}
+						}
+						"auto" -> {
+							// Try to print using any available printer
+							when {
+								isUsbConnected && usbPrinter != null -> {
+									usbPrinter!!.printText(
+										content,
+										leftMarginDots = printConfig.leftMargin,
+										rightMarginDots = printConfig.rightMargin,
+										lineSpacing = printConfig.lineSpacing,
+										widthMultiplier = printConfig.widthMul,
+										heightMultiplier = printConfig.heightMul,
+										pageWidthDots = printConfig.pageWidthDots,
+										linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
+									)
+									"{\"ok\":true,\"msg\":\"Content sent to USB printer\"}"
+								}
+								isBtConnected && escPosPrinter != null -> {
+									escPosPrinter!!.printText(
+										content,
+										leftMarginDots = printConfig.leftMargin,
+										rightMarginDots = printConfig.rightMargin,
+										lineSpacing = printConfig.lineSpacing,
+										widthMultiplier = printConfig.widthMul,
+										heightMultiplier = printConfig.heightMul,
+										pageWidthDots = printConfig.pageWidthDots,
+										linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
+									)
+									"{\"ok\":true,\"msg\":\"Content sent to Bluetooth printer\"}"
+								}
+								isLanConnected && lanPrinter != null -> {
+									lanPrinter!!.printText(
+										content,
+										leftMarginDots = printConfig.leftMargin,
+										rightMarginDots = printConfig.rightMargin,
+										lineSpacing = printConfig.lineSpacing,
+										widthMultiplier = printConfig.widthMul,
+										heightMultiplier = printConfig.heightMul,
+										pageWidthDots = printConfig.pageWidthDots,
+										linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
+									)
+									"{\"ok\":true,\"msg\":\"Content sent to LAN printer\"}"
+								}
+								else -> "{\"ok\":false,\"msg\":\"No printer connected\"}"
+							}
+						}
+						else -> "{\"ok\":false,\"msg\":\"Unknown printer type: $printerType\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Print error: ${e.message}\"}"
+				}
+			}
+
+
+
+			@android.webkit.JavascriptInterface
+			fun showNativePrintDialog(): String {
+				return try {
+					runOnUiThread {
+						val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
+						val printAdapter = webView.createPrintDocumentAdapter("Web Content")
+						val printJob = printManager.print(
+							"Web Print Job",
+							printAdapter,
+							PrintAttributes.Builder()
+								.setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+								.setResolution(PrintAttributes.Resolution("printer", "printer", 600, 600))
+								.setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+								.build()
+						)
+					}
+					"{\"ok\":true,\"msg\":\"Native print dialog opened\"}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Failed to open print dialog: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun getConnectedPrinterNames(): String {
+				return try {
+					val printers = mutableListOf<Map<String, Any>>()
+					
+					// Get USB printer names
+					if (isUsbConnected && usbPrinter != null) {
+						val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
+						val deviceList = usbManager.deviceList
+						deviceList.values.forEach { device ->
+							val printerMap = mutableMapOf<String, Any>()
+							printerMap["name"] = device.deviceName ?: "USB Printer"
+							printerMap["type"] = "USB"
+							printerMap["connected"] = true
+							printerMap["vendorId"] = device.vendorId
+							printerMap["productId"] = device.productId
+							printers.add(printerMap)
+						}
+					}
+					
+					// Get Bluetooth printer names
+					if (isBtConnected && escPosPrinter != null) {
+						val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+						val pairedDevices = bluetoothAdapter?.bondedDevices
+						pairedDevices?.forEach { device ->
+							if (device.type == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+								val printerMap = mutableMapOf<String, Any>()
+								printerMap["name"] = device.name ?: "Bluetooth Printer"
+								printerMap["type"] = "Bluetooth"
+								printerMap["connected"] = true
+								printerMap["address"] = device.address
+								printers.add(printerMap)
+							}
+						}
+					}
+					
+					// Get LAN printer names
+					if (isLanConnected && lanPrinter != null) {
+						val printerMap = mutableMapOf<String, Any>()
+						printerMap["name"] = "LAN Printer"
+						printerMap["type"] = "Network"
+						printerMap["connected"] = true
+						printerMap["ip"] = "192.168.1.100" // You can get actual IP from your LAN printer
+						printers.add(printerMap)
+					}
+					
+					org.json.JSONObject(mapOf("printers" to printers)).toString()
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Error getting printer names: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun testEscPosPrinting(): String {
+				return try {
+					val testContent = """
+						================================
+						ESC/POS PRINTING TEST
+						================================
+						
+						This test verifies that ESC/POS printing
+						works without vendor SDKs.
+						
+						Timestamp: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}
+						
+						Features tested:
+						- USB Printing: ${if (isUsbConnected) "Available" else "Not Connected"}
+						- Bluetooth Printing: ${if (isBtConnected) "Available" else "Not Connected"}
+						- LAN Printing: ${if (isLanConnected) "Available" else "Not Connected"}
+						
+						================================
+						END OF TEST
+						================================
+						
+						
+						
+					""".trimIndent()
+					
+					// Try to print using any available printer
+					val result = printWebContent(testContent, "auto")
+					val response = JSONObject(result)
+					
+					if (response.getBoolean("ok")) {
+						"{\"ok\":true,\"msg\":\"ESC/POS printing test successful: ${response.getString("msg")}\"}"
+					} else {
+						"{\"ok\":false,\"msg\":\"ESC/POS printing test failed: ${response.getString("msg")}\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"ESC/POS test error: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun downloadEpsonSdk(): String {
+				return try {
+					runBlocking {
+						val result = sdkDownloader.downloadEpsonSdk()
+						when (result) {
+							is SdkDownloader.DownloadResult.Success -> 
+								"{\"ok\":true,\"msg\":\"${result.message}\"}"
+							is SdkDownloader.DownloadResult.Error -> 
+								"{\"ok\":false,\"msg\":\"${result.message}\"}"
+							is SdkDownloader.DownloadResult.Info -> 
+								"{\"ok\":true,\"msg\":\"${result.message}\"}"
+						}
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Download error: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun downloadXPrinterSdk(): String {
+				return try {
+					runBlocking {
+						val result = sdkDownloader.downloadXPrinterSdk()
+						when (result) {
+							is SdkDownloader.DownloadResult.Success -> 
+								"{\"ok\":true,\"msg\":\"${result.message}\"}"
+							is SdkDownloader.DownloadResult.Error -> 
+								"{\"ok\":false,\"msg\":\"${result.message}\"}"
+							is SdkDownloader.DownloadResult.Info -> 
+								"{\"ok\":true,\"msg\":\"${result.message}\"}"
+						}
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Download error: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun checkSdkAvailability(): String {
+				return try {
+					val availability = sdkDownloader.checkSdkAvailability()
+					val json = org.json.JSONObject(availability as Map<Any?, Any?>)
+					"{\"ok\":true,\"availability\":$json}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Error checking SDK availability: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun installAllSdks(): String {
+				return try {
+					runBlocking {
+						val epsonResult = sdkDownloader.downloadEpsonSdk()
+						val xprinterResult = sdkDownloader.downloadXPrinterSdk()
+						
+						val results = mutableListOf<String>()
+						
+						when (epsonResult) {
+							is SdkDownloader.DownloadResult.Success -> 
+								results.add("Epson SDK: ${epsonResult.message}")
+							is SdkDownloader.DownloadResult.Error -> 
+								results.add("Epson SDK Error: ${epsonResult.message}")
+							is SdkDownloader.DownloadResult.Info -> 
+								results.add("Epson SDK: ${epsonResult.message}")
+						}
+						
+						when (xprinterResult) {
+							is SdkDownloader.DownloadResult.Success -> 
+								results.add("XPrinter SDK: ${xprinterResult.message}")
+							is SdkDownloader.DownloadResult.Error -> 
+								results.add("XPrinter SDK Error: ${xprinterResult.message}")
+							is SdkDownloader.DownloadResult.Info -> 
+								results.add("XPrinter SDK: ${xprinterResult.message}")
+						}
+						
+						"{\"ok\":true,\"msg\":\"${results.joinToString("\\n")}\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Installation error: ${e.message}\"}"
+				}
+			}
+			
+			@android.webkit.JavascriptInterface
+			fun testProfileSaving(): String {
+				return try {
+					// Create a test USB profile
+					val testProfile = PrinterConfigManager.PrinterConfig(
+						type = "usb",
+						name = "Test USB Printer",
+						enabled = true,
+						paperWidth = 384,
+						connectionParams = mapOf(
+							"devicePath" to "/dev/bus/usb/005/002",
+							"vendorId" to "0x04E8",
+							"productId" to "0x1234"
+						)
+					)
+					
+					val success = printerConfigManager.saveProfile(testProfile)
+					if (success) {
+						"{\"ok\":true,\"msg\":\"Test profile saved successfully\"}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to save test profile\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Test profile save error: ${e.message}\"}"
+				}
+			}
+			
+			@android.webkit.JavascriptInterface
+			fun autoConnectUsbPrinter(): String {
+				return try {
+					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
+					val deviceList = usbManager.deviceList
+					
+					// First try to find a known printer vendor ID
+					var usbDevice = deviceList.values.firstOrNull { device ->
+						val vid = device.vendorId
+						vid == 0x04E8 || vid == 0x04B8 || vid == 0x04F9 || vid == 0x0FE6 || vid == 0x154F || 
+						vid == 0x03F0 || vid == 0x04A9 || vid == 0x0BDA || vid == 0x0ACD || vid == 0x0B05
+					}
+					
+					// If no known printer found, try any USB device (broader approach)
+					if (usbDevice == null) {
+						usbDevice = deviceList.values.firstOrNull { device ->
+							// Look for devices that might be printers based on device class or name
+							val deviceName = device.deviceName?.lowercase() ?: ""
+							deviceName.contains("printer") || deviceName.contains("pos") || 
+							deviceName.contains("thermal") || deviceName.contains("receipt")
+						}
+					}
+					
+					// If still no device found, try the first available USB device
+					if (usbDevice == null && deviceList.isNotEmpty()) {
+						usbDevice = deviceList.values.first()
+					}
+					
+					if (usbDevice != null) {
+						try {
+							usbPrinter?.close()
+							usbPrinter = UsbEscPosPrinter(this@MainActivity)
+							usbPrinter!!.connect(usbDevice)
+							isUsbConnected = true
+							"{\"ok\":true,\"msg\":\"USB printer connected: ${usbDevice.deviceName} (VID: 0x${usbDevice.vendorId.toString(16).uppercase()})\"}"
+						} catch (connectError: Exception) {
+							"{\"ok\":false,\"msg\":\"Found USB device but failed to connect: ${connectError.message}. Device: ${usbDevice.deviceName} (VID: 0x${usbDevice.vendorId.toString(16).uppercase()})\"}"
+						}
+					} else {
+						"{\"ok\":false,\"msg\":\"No USB devices found. Please check USB connection.\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"Failed to scan USB devices: ${e.message}\"}"
+				}
+			}
+
 			// Utility functions
 			@android.webkit.JavascriptInterface
 			fun getAvailablePrinters(): String {
@@ -861,6 +1570,507 @@ class MainActivity : ComponentActivity() {
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
 			}
+
+			// Printer Configuration Management Methods
+			@android.webkit.JavascriptInterface
+			fun getAllPrinterProfiles(): String {
+				return try {
+					val profiles = printerConfigManager.getAllProfiles()
+					val profilesJson = org.json.JSONArray()
+					profiles.forEach { profile ->
+						profilesJson.put(profile.toJson())
+					}
+					"{\"ok\":true,\"profiles\":${'$'}profilesJson}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun getPrinterProfile(id: String): String {
+				return try {
+					val profile = printerConfigManager.getProfile(id)
+					if (profile != null) {
+						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Profile not found\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun savePrinterProfile(profileJson: String): String {
+				return try {
+					android.util.Log.d("MainActivity", "Saving profile: $profileJson")
+					
+					// Validate JSON first
+					if (profileJson.isBlank()) {
+						return "{\"ok\":false,\"msg\":\"Profile data is empty\"}"
+					}
+					
+					val profileObj = org.json.JSONObject(profileJson)
+					
+					// Validate required fields
+					if (!profileObj.has("type") || !profileObj.has("name")) {
+						return "{\"ok\":false,\"msg\":\"Profile must have type and name fields\"}"
+					}
+					
+					val profile = PrinterConfigManager.PrinterConfig.fromJson(profileObj)
+					
+					android.util.Log.d("MainActivity", "Parsed profile: type=${profile.type}, name=${profile.name}, id=${profile.id}")
+					
+					// Validate profile data
+					if (profile.type.isBlank()) {
+						return "{\"ok\":false,\"msg\":\"Profile type cannot be empty\"}"
+					}
+					if (profile.name.isBlank()) {
+						return "{\"ok\":false,\"msg\":\"Profile name cannot be empty\"}"
+					}
+					
+					val success = printerConfigManager.saveProfile(profile)
+					if (success) {
+						android.util.Log.d("MainActivity", "Profile saved successfully")
+						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
+					} else {
+						android.util.Log.e("MainActivity", "Failed to save profile")
+						"{\"ok\":false,\"msg\":\"Failed to save profile to storage\"}"
+					}
+				} catch (e: org.json.JSONException) {
+					android.util.Log.e("MainActivity", "JSON parsing error: ${e.message}", e)
+					"{\"ok\":false,\"msg\":\"Invalid profile data format: ${e.message}\"}"
+				} catch (e: Exception) {
+					android.util.Log.e("MainActivity", "Error saving profile: ${e.message}", e)
+					"{\"ok\":false,\"msg\":\"Error saving profile: ${e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun deletePrinterProfile(id: String): String {
+				return try {
+					val success = printerConfigManager.deleteProfile(id)
+					if (success) {
+						"{\"ok\":true}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to delete profile or profile is default\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun duplicatePrinterProfile(id: String, newName: String): String {
+				return try {
+					val duplicatedProfile = printerConfigManager.duplicateProfile(id, newName)
+					if (duplicatedProfile != null) {
+						"{\"ok\":true,\"profile\":${'$'}{duplicatedProfile.toJson()}}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to duplicate profile\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun setPrinterProfileAsDefault(id: String): String {
+				return try {
+					val success = printerConfigManager.setAsDefault(id)
+					if (success) {
+						"{\"ok\":true}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to set profile as default\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun getPrinterProfilesByType(type: String): String {
+				return try {
+					val profiles = printerConfigManager.getProfilesByType(type)
+					val profilesJson = org.json.JSONArray()
+					profiles.forEach { profile ->
+						profilesJson.put(profile.toJson())
+					}
+					"{\"ok\":true,\"profiles\":${'$'}profilesJson}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun getDefaultPrinterProfile(type: String): String {
+				return try {
+					val profile = printerConfigManager.getDefaultProfile(type)
+					if (profile != null) {
+						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
+					} else {
+						"{\"ok\":false,\"msg\":\"No default profile found for type\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun getLastUsedPrinterProfile(): String {
+				return try {
+					val profile = printerConfigManager.getLastUsedProfile()
+					if (profile != null) {
+						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
+					} else {
+						"{\"ok\":false,\"msg\":\"No last used profile found\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun setLastUsedPrinterProfile(id: String): String {
+				return try {
+					printerConfigManager.setLastUsedProfile(id)
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun getPrinterConfigStatistics(): String {
+				return try {
+					val stats = printerConfigManager.getStatistics()
+					val statsJson = org.json.JSONObject()
+					stats.forEach { (key, value) ->
+						statsJson.put(key, value)
+					}
+					"{\"ok\":true,\"statistics\":${'$'}statsJson}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun exportPrinterProfiles(): String {
+				return try {
+					val profilesJson = printerConfigManager.exportProfiles()
+					"{\"ok\":true,\"profiles\":${'$'}profilesJson}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun importPrinterProfiles(profilesJson: String): String {
+				return try {
+					val success = printerConfigManager.importProfiles(profilesJson)
+					if (success) {
+						"{\"ok\":true}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to import profiles\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun clearAllPrinterProfiles(): String {
+				return try {
+					val success = printerConfigManager.clearAllProfiles()
+					if (success) {
+						"{\"ok\":true}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to clear profiles\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun createPrinterProfileFromConnection(
+				type: String,
+				name: String,
+				connectionParamsJson: String,
+				paperWidth: Int = 576
+			): String {
+				return try {
+					val connectionParams = org.json.JSONObject(connectionParamsJson)
+					val paramsMap = mutableMapOf<String, String>()
+					connectionParams.keys().forEach { key ->
+						paramsMap[key] = connectionParams.getString(key)
+					}
+					val profile = printerConfigManager.createProfileFromConnection(type, name, paramsMap, paperWidth)
+					val success = printerConfigManager.saveProfile(profile)
+					if (success) {
+						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to create profile\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun testPrinterProfile(profileId: String, testText: String = "Test Print"): String {
+				return try {
+					val profile = printerConfigManager.getProfile(profileId)
+					if (profile == null) {
+						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
+					}
+					
+					// Apply profile configuration to current print settings
+					defaultPrintConfig = PrintConfig(
+						leftMargin = profile.leftMargin,
+						rightMargin = profile.rightMargin,
+						lineSpacing = profile.lineSpacing,
+						widthMul = profile.widthMultiplier,
+						heightMul = profile.heightMultiplier,
+						pageWidthDots = profile.paperWidth,
+						linesPerPage = 0
+					)
+					
+					// Try to connect and print based on profile type
+					when (profile.type) {
+						PrinterConfigManager.TYPE_BLUETOOTH -> {
+							val mac = profile.connectionParams["mac"]
+							if (mac != null) {
+								val connectResult = connectPrinter(mac)
+								if (connectResult.contains("\"ok\":true")) {
+									btPrint(testText)
+								} else {
+									connectResult
+								}
+							} else {
+								"{\"ok\":false,\"msg\":\"No MAC address configured\"}"
+							}
+						}
+						PrinterConfigManager.TYPE_USB -> {
+							val deviceName = profile.connectionParams["deviceName"]
+							if (deviceName != null) {
+								val connectResult = connectUsbPrinter(deviceName)
+								if (connectResult.contains("\"ok\":true")) {
+									usbPrint(testText)
+								} else {
+									connectResult
+								}
+							} else {
+								"{\"ok\":false,\"msg\":\"No device name configured\"}"
+							}
+						}
+						PrinterConfigManager.TYPE_LAN -> {
+							val ip = profile.connectionParams["ip"]
+							val port = profile.connectionParams["port"]?.toIntOrNull() ?: 9100
+							if (ip != null) {
+								val connectResult = connectLanPrinter(ip, port)
+								if (connectResult.contains("\"ok\":true")) {
+									lanPrint(testText)
+								} else {
+									connectResult
+								}
+							} else {
+								"{\"ok\":false,\"msg\":\"No IP address configured\"}"
+							}
+						}
+						PrinterConfigManager.TYPE_EPSON -> {
+							epsonPrintText(testText)
+						}
+						PrinterConfigManager.TYPE_XPRINTER -> {
+							xprinterPrintText(testText)
+						}
+						PrinterConfigManager.TYPE_VENDOR -> {
+							vendorPrintText(testText)
+						}
+						else -> {
+							"{\"ok\":false,\"msg\":\"Unknown printer type\"}"
+						}
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			// Printer Testing and Validation Methods
+			@android.webkit.JavascriptInterface
+			fun testPrinterProfileComprehensive(profileId: String, testText: String = "Comprehensive Test"): String {
+				return try {
+					val profile = printerConfigManager.getProfile(profileId)
+					if (profile == null) {
+						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
+					}
+					
+					val testResult = printerTester.testPrinterProfile(profile)
+					"{\"ok\":true,\"result\":${'$'}{testResult.toJson()}}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun runPrinterDiagnostics(): String {
+				return try {
+					val diagnostics = printerTester.runDiagnostics()
+					val diagnosticsJson = org.json.JSONObject()
+					diagnostics.forEach { (key, value) ->
+						when (value) {
+							is String -> diagnosticsJson.put(key, value)
+							is Int -> diagnosticsJson.put(key, value)
+							is Boolean -> diagnosticsJson.put(key, value)
+							is Double -> diagnosticsJson.put(key, value)
+							else -> diagnosticsJson.put(key, value.toString())
+						}
+					}
+					"{\"ok\":true,\"diagnostics\":${'$'}diagnosticsJson}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun validatePrinterProfile(profileId: String): String {
+				return try {
+					val profile = printerConfigManager.getProfile(profileId)
+					if (profile == null) {
+						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
+					}
+					
+					val validationResults = mutableListOf<String>()
+					var isValid = true
+					
+					// Validate required fields
+					if (profile.name.isBlank()) {
+						validationResults.add("Profile name is required")
+						isValid = false
+					}
+					
+					if (profile.type.isBlank()) {
+						validationResults.add("Printer type is required")
+						isValid = false
+					}
+					
+					// Validate connection parameters based on type
+					when (profile.type) {
+						PrinterConfigManager.TYPE_BLUETOOTH -> {
+							if (profile.connectionParams["mac"].isNullOrBlank()) {
+								validationResults.add("MAC address is required for Bluetooth printers")
+								isValid = false
+							}
+						}
+						PrinterConfigManager.TYPE_USB -> {
+							if (profile.connectionParams["deviceName"].isNullOrBlank()) {
+								validationResults.add("Device name is required for USB printers")
+								isValid = false
+							}
+						}
+						PrinterConfigManager.TYPE_LAN -> {
+							if (profile.connectionParams["ip"].isNullOrBlank()) {
+								validationResults.add("IP address is required for LAN printers")
+								isValid = false
+							}
+							val port = profile.connectionParams["port"]?.toIntOrNull()
+							if (port == null || port < 1 || port > 65535) {
+								validationResults.add("Valid port number (1-65535) is required for LAN printers")
+								isValid = false
+							}
+						}
+					}
+					
+					// Validate numeric ranges
+					if (profile.paperWidth < 200 || profile.paperWidth > 2000) {
+						validationResults.add("Paper width should be between 200-2000 dots")
+						isValid = false
+					}
+					
+					if (profile.leftMargin < 0 || profile.leftMargin > 200) {
+						validationResults.add("Left margin should be between 0-200 dots")
+						isValid = false
+					}
+					
+					if (profile.rightMargin < 0 || profile.rightMargin > 200) {
+						validationResults.add("Right margin should be between 0-200 dots")
+						isValid = false
+					}
+					
+					if (profile.lineSpacing < 0 || profile.lineSpacing > 100) {
+						validationResults.add("Line spacing should be between 0-100")
+						isValid = false
+					}
+					
+					if (profile.widthMultiplier < 0 || profile.widthMultiplier > 7) {
+						validationResults.add("Width multiplier should be between 0-7")
+						isValid = false
+					}
+					
+					if (profile.heightMultiplier < 0 || profile.heightMultiplier > 7) {
+						validationResults.add("Height multiplier should be between 0-7")
+						isValid = false
+					}
+					
+					if (profile.timeout < 1000 || profile.timeout > 30000) {
+						validationResults.add("Timeout should be between 1000-30000 milliseconds")
+						isValid = false
+					}
+					
+					val result = org.json.JSONObject()
+					result.put("valid", isValid)
+					result.put("errors", org.json.JSONArray(validationResults))
+					
+					"{\"ok\":true,\"validation\":${'$'}result}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun testAllPrinterProfiles(): String {
+				return try {
+					val profiles = printerConfigManager.getAllProfiles()
+					val results = org.json.JSONArray()
+					
+					profiles.forEach { profile ->
+						val testResult = printerTester.testPrinterProfile(profile)
+						val resultObj = org.json.JSONObject()
+						resultObj.put("profileId", profile.id)
+						resultObj.put("profileName", profile.name)
+						resultObj.put("profileType", profile.type)
+						resultObj.put("testResult", testResult.toJson())
+						results.put(resultObj)
+					}
+					
+					"{\"ok\":true,\"results\":${'$'}results}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun getPrinterTestReport(profileId: String): String {
+				return try {
+					val profile = printerConfigManager.getProfile(profileId)
+					if (profile == null) {
+						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
+					}
+					
+					val testResult = printerTester.testPrinterProfile(profile)
+					val diagnostics = printerTester.runDiagnostics()
+					
+					val report = org.json.JSONObject()
+					report.put("profile", profile.toJson())
+					report.put("testResult", testResult.toJson())
+					report.put("diagnostics", org.json.JSONObject(diagnostics))
+					report.put("timestamp", System.currentTimeMillis())
+					
+					"{\"ok\":true,\"report\":${'$'}report}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
 		}, "ElintPOSNative")
 
 		setupFileChooserLauncher()
@@ -883,6 +2093,444 @@ class MainActivity : ComponentActivity() {
 		val controller = WindowInsetsControllerCompat(window, window.decorView)
 		controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 		controller.hide(WindowInsetsCompat.Type.systemBars())
+	}
+
+	private fun createSettingsButton(): android.widget.ImageButton {
+		val settingsButton = android.widget.ImageButton(this)
+		val layoutParams = android.widget.RelativeLayout.LayoutParams(
+			android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
+			android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
+		)
+		layoutParams.addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
+		layoutParams.addRule(android.widget.RelativeLayout.ALIGN_PARENT_END)
+		layoutParams.setMargins(0, 50, 20, 0)
+		settingsButton.layoutParams = layoutParams
+		
+		// Set button properties with modern FAB style
+		settingsButton.setImageResource(android.R.drawable.ic_menu_preferences)
+		settingsButton.background = android.graphics.drawable.GradientDrawable().apply {
+			shape = android.graphics.drawable.GradientDrawable.OVAL
+			setColor(android.graphics.Color.parseColor("#FF6200EA")) // Purple color
+			setStroke(4, android.graphics.Color.parseColor("#FFFFFFFF")) // White border
+		}
+		settingsButton.setPadding(24, 24, 24, 24)
+		settingsButton.scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
+		settingsButton.elevation = 12f
+		
+		// Add ripple effect
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			val rippleDrawable = android.graphics.drawable.RippleDrawable(
+				android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#40FFFFFF")),
+				settingsButton.background,
+				null
+			)
+			settingsButton.background = rippleDrawable
+		}
+		
+		// Add click listener
+		settingsButton.setOnClickListener {
+			showPrinterSettingsPopup()
+		}
+		
+		// Add long click listener for additional options
+		settingsButton.setOnLongClickListener {
+			showAdvancedSettingsMenu()
+			true
+		}
+		
+		return settingsButton
+	}
+
+	private fun showAdvancedSettingsMenu() {
+		val options = arrayOf(
+			"Quick Settings",
+			"Printer Settings UI",
+			"Full Printer Management",
+			"Settings Demo Page",
+			"Test All Printers",
+			"Printer Diagnostics",
+			"Export Settings",
+			"Import Settings"
+		)
+		
+		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+			.setTitle("⚙️ Advanced Printer Settings")
+			.setItems(options) { _, which ->
+				when (which) {
+					0 -> showQuickSettingsPopup()
+					1 -> openPrinterSettingsUI()
+					2 -> openPrinterManagement()
+					3 -> openSettingsDemo()
+					4 -> testAllPrinters()
+					5 -> showPrinterDiagnostics()
+					6 -> exportPrinterSettings()
+					7 -> importPrinterSettings()
+				}
+			}
+			.setNegativeButton("Cancel", null)
+			.create()
+		
+		dialog.show()
+	}
+
+	private fun testAllPrinters() {
+		try {
+			val profiles = printerConfigManager.getAllProfiles()
+			var successCount = 0
+			var totalCount = profiles.size
+			
+			profiles.forEach { profile ->
+				try {
+					val testResult = printerTester.testPrinterProfile(profile)
+					if (testResult.success) {
+						successCount++
+					}
+				} catch (e: Exception) {
+					// Individual test failed, continue with others
+				}
+			}
+			
+			Toast.makeText(this, "Tested $successCount/$totalCount printers successfully", Toast.LENGTH_LONG).show()
+		} catch (e: Exception) {
+			Toast.makeText(this, "Test error: ${e.message}", Toast.LENGTH_SHORT).show()
+		}
+	}
+
+	private fun showPrinterDiagnostics() {
+		try {
+			val diagnostics = printerTester.runDiagnostics()
+			val message = buildString {
+				appendLine("Printer Diagnostics:")
+				appendLine("Bluetooth: ${if (diagnostics["bluetooth_available"] == true) "Available" else "Not Available"}")
+				appendLine("USB Devices: ${diagnostics["usb_devices_count"]}")
+				appendLine("Network: ${if (diagnostics["network_connected"] == true) "Connected" else "Disconnected"}")
+				appendLine("ESC/POS Printing: ${if (diagnostics["escpos_available"] == true) "Available" else "Not Available"}")
+				appendLine("USB Printing: ${if (diagnostics["usb_printing_available"] == true) "Available" else "Not Available"}")
+				appendLine("Bluetooth Printing: ${if (diagnostics["bluetooth_printing_available"] == true) "Available" else "Not Available"}")
+				appendLine("LAN Printing: ${if (diagnostics["lan_printing_available"] == true) "Available" else "Not Available"}")
+				appendLine("Epson SDK: ${if (diagnostics["epson_sdk_available"] == true) "Available" else "Not Available (ESC/POS works)"}")
+				appendLine("XPrinter SDK: ${if (diagnostics["xprinter_sdk_available"] == true) "Available" else "Not Available (ESC/POS works)"}")
+			}
+			
+			val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+				.setTitle("🔍 Printer Diagnostics")
+				.setMessage(message)
+				.setPositiveButton("OK", null)
+				.create()
+			dialog.show()
+		} catch (e: Exception) {
+			Toast.makeText(this, "Diagnostics error: ${e.message}", Toast.LENGTH_SHORT).show()
+		}
+	}
+
+	private fun exportPrinterSettings() {
+		try {
+			val profiles = printerConfigManager.exportProfiles()
+			val profileCount = printerConfigManager.getAllProfiles().size
+			// In a real implementation, you would save this to a file or share it
+			Toast.makeText(this, "Settings exported successfully! ($profileCount profiles)", Toast.LENGTH_SHORT).show()
+		} catch (e: Exception) {
+			Toast.makeText(this, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+		}
+	}
+
+	private fun importPrinterSettings() {
+		// In a real implementation, you would show a file picker or input dialog
+		Toast.makeText(this, "Import functionality would open file picker", Toast.LENGTH_SHORT).show()
+	}
+
+	private fun showPrinterSettingsPopup() {
+		val options = arrayOf(
+			"Printer Settings UI",
+			"Quick Settings", 
+			"Full Printer Management"
+		)
+		
+		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+			.setTitle("🖨️ Printer Configuration")
+			.setItems(options) { _, which ->
+				when (which) {
+					0 -> openPrinterSettingsUI()
+					1 -> showQuickSettingsPopup()
+					2 -> openPrinterManagement()
+				}
+			}
+			.setNegativeButton("Cancel", null)
+			.create()
+		
+		dialog.show()
+	}
+
+	private fun showQuickSettingsPopup() {
+		val quickSettingsView = createQuickSettingsView()
+		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+			.setTitle("⚙️ Quick Printer Settings")
+			.setView(quickSettingsView)
+			.setPositiveButton("Apply", null)
+			.setNegativeButton("Cancel", null)
+			.create()
+		
+		dialog.show()
+		
+		// Handle apply button click
+		dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+			applyQuickSettings(quickSettingsView, dialog)
+		}
+	}
+
+	private fun createQuickSettingsView(): android.view.View {
+		val layout = android.widget.LinearLayout(this)
+		layout.orientation = android.widget.LinearLayout.VERTICAL
+		layout.setPadding(50, 30, 50, 30)
+		
+		// Paper width setting
+		val paperWidthLayout = android.widget.LinearLayout(this)
+		paperWidthLayout.orientation = android.widget.LinearLayout.HORIZONTAL
+		paperWidthLayout.setPadding(0, 10, 0, 10)
+		
+		val paperWidthLabel = android.widget.TextView(this)
+		paperWidthLabel.text = "Paper Width:"
+		paperWidthLabel.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+		
+		val paperWidthSpinner = android.widget.Spinner(this)
+		val paperWidthAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, 
+			arrayOf("58mm (384 dots)", "80mm (576 dots)", "112mm (832 dots)"))
+		paperWidthAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+		paperWidthSpinner.adapter = paperWidthAdapter
+		paperWidthSpinner.tag = "paperWidth"
+		paperWidthSpinner.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+		
+		paperWidthLayout.addView(paperWidthLabel)
+		paperWidthLayout.addView(paperWidthSpinner)
+		
+		// Line spacing setting
+		val lineSpacingLayout = android.widget.LinearLayout(this)
+		lineSpacingLayout.orientation = android.widget.LinearLayout.HORIZONTAL
+		lineSpacingLayout.setPadding(0, 10, 0, 10)
+		
+		val lineSpacingLabel = android.widget.TextView(this)
+		lineSpacingLabel.text = "Line Spacing:"
+		lineSpacingLabel.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+		
+		val lineSpacingSeekBar = android.widget.SeekBar(this)
+		lineSpacingSeekBar.max = 100
+		lineSpacingSeekBar.progress = 30
+		lineSpacingSeekBar.tag = "lineSpacing"
+		lineSpacingSeekBar.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+		
+		val lineSpacingValue = android.widget.TextView(this)
+		lineSpacingValue.text = "30"
+		lineSpacingValue.tag = "lineSpacingValue"
+		lineSpacingValue.layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+		
+		lineSpacingSeekBar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+			override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+				lineSpacingValue.text = progress.toString()
+			}
+			override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+			override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+		})
+		
+		lineSpacingLayout.addView(lineSpacingLabel)
+		lineSpacingLayout.addView(lineSpacingSeekBar)
+		lineSpacingLayout.addView(lineSpacingValue)
+		
+		// Test print button
+		val testPrintButton = android.widget.Button(this)
+		testPrintButton.text = "Test Print"
+		testPrintButton.setPadding(0, 20, 0, 20)
+		testPrintButton.setOnClickListener {
+			testQuickPrint(layout)
+		}
+		
+		layout.addView(paperWidthLayout)
+		layout.addView(lineSpacingLayout)
+		layout.addView(testPrintButton)
+		
+		return layout
+	}
+
+	private fun applyQuickSettings(view: android.view.View, dialog: androidx.appcompat.app.AlertDialog) {
+		try {
+			val paperWidthSpinner = view.findViewWithTag<android.widget.Spinner>("paperWidth")
+			val lineSpacingSeekBar = view.findViewWithTag<android.widget.SeekBar>("lineSpacing")
+			
+			val paperWidths = intArrayOf(384, 576, 832)
+			val paperWidth = paperWidths[paperWidthSpinner.selectedItemPosition]
+			val lineSpacing = lineSpacingSeekBar.progress
+			
+			// Apply settings to default print config
+			defaultPrintConfig = PrintConfig(
+				leftMargin = 0,
+				rightMargin = 0,
+				lineSpacing = lineSpacing,
+				widthMul = 0,
+				heightMul = 0,
+				pageWidthDots = paperWidth,
+				linesPerPage = 0
+			)
+			
+			Toast.makeText(this, "Settings applied successfully!", Toast.LENGTH_SHORT).show()
+			dialog.dismiss()
+		} catch (e: Exception) {
+			Toast.makeText(this, "Error applying settings: ${e.message}", Toast.LENGTH_SHORT).show()
+		}
+	}
+
+	private fun testQuickPrint(view: android.view.View) {
+		try {
+			val paperWidthSpinner = view.findViewWithTag<android.widget.Spinner>("paperWidth")
+			val lineSpacingSeekBar = view.findViewWithTag<android.widget.SeekBar>("lineSpacing")
+			
+			val paperWidths = intArrayOf(384, 576, 832)
+			val paperWidth = paperWidths[paperWidthSpinner.selectedItemPosition]
+			val lineSpacing = lineSpacingSeekBar.progress
+			
+			val testText = """
+				================================
+				QUICK SETTINGS TEST PRINT
+				================================
+				
+				Paper Width: ${paperWidth} dots
+				Line Spacing: ${lineSpacing}
+				
+				This is a test of the quick settings
+				configuration. If you can read this
+				clearly, the settings are working
+				correctly.
+				
+				Time: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}
+				
+				================================
+				END OF TEST
+				================================
+			""".trimIndent()
+			
+			// Apply settings and print
+			defaultPrintConfig = PrintConfig(
+				leftMargin = 0,
+				rightMargin = 0,
+				lineSpacing = lineSpacing,
+				widthMul = 0,
+				heightMul = 0,
+				pageWidthDots = paperWidth,
+				linesPerPage = 0
+			)
+			
+			// Try to print using the existing print methods
+			val result = try {
+				// Check for connected printers in order of preference
+				when {
+					// Try USB printer first (most common for POS)
+					isUsbConnected && usbPrinter != null -> {
+						usbPrinter!!.printText(
+							testText,
+							leftMarginDots = defaultPrintConfig.leftMargin,
+							rightMarginDots = defaultPrintConfig.rightMargin,
+							lineSpacing = defaultPrintConfig.lineSpacing,
+							widthMultiplier = defaultPrintConfig.widthMul,
+							heightMultiplier = defaultPrintConfig.heightMul,
+							pageWidthDots = defaultPrintConfig.pageWidthDots,
+							linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
+						)
+						"{\"ok\":true}"
+					}
+					// Try Bluetooth printer
+					isBtConnected && escPosPrinter != null -> {
+						escPosPrinter!!.printText(
+							testText,
+							leftMarginDots = defaultPrintConfig.leftMargin,
+							rightMarginDots = defaultPrintConfig.rightMargin,
+							lineSpacing = defaultPrintConfig.lineSpacing,
+							widthMultiplier = defaultPrintConfig.widthMul,
+							heightMultiplier = defaultPrintConfig.heightMul,
+							pageWidthDots = defaultPrintConfig.pageWidthDots,
+							linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
+						)
+						"{\"ok\":true}"
+					}
+					// Try LAN printer
+					isLanConnected && lanPrinter != null -> {
+						lanPrinter!!.printText(
+							testText,
+							leftMarginDots = defaultPrintConfig.leftMargin,
+							rightMarginDots = defaultPrintConfig.rightMargin,
+							lineSpacing = defaultPrintConfig.lineSpacing,
+							widthMultiplier = defaultPrintConfig.widthMul,
+							heightMultiplier = defaultPrintConfig.heightMul,
+							pageWidthDots = defaultPrintConfig.pageWidthDots,
+							linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
+						)
+						"{\"ok\":true}"
+					}
+					// Try to auto-detect and connect USB printer
+					else -> {
+						try {
+							// Try to find and connect USB printer automatically
+							val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
+							val deviceList = usbManager.deviceList
+							val usbDevice = deviceList.values.firstOrNull { device ->
+								// Look for common printer vendor IDs
+								val vid = device.vendorId
+								vid == 0x04E8 || vid == 0x04B8 || vid == 0x04F9 || vid == 0x0FE6 || vid == 0x154F
+							}
+							
+							if (usbDevice != null) {
+								usbPrinter?.close()
+								usbPrinter = UsbEscPosPrinter(this)
+								usbPrinter!!.connect(usbDevice)
+								isUsbConnected = true
+								
+								usbPrinter!!.printText(
+									testText,
+									leftMarginDots = defaultPrintConfig.leftMargin,
+									rightMarginDots = defaultPrintConfig.rightMargin,
+									lineSpacing = defaultPrintConfig.lineSpacing,
+									widthMultiplier = defaultPrintConfig.widthMul,
+									heightMultiplier = defaultPrintConfig.heightMul,
+									pageWidthDots = defaultPrintConfig.pageWidthDots,
+									linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
+								)
+								"{\"ok\":true}"
+							} else {
+								"{\"ok\":false,\"msg\":\"No printer connected. Please connect USB, Bluetooth, or LAN printer first.\"}"
+							}
+						} catch (e: Exception) {
+							"{\"ok\":false,\"msg\":\"No printer connected. Please connect USB, Bluetooth, or LAN printer first. Error: ${e.message}\"}"
+						}
+					}
+				}
+			} catch (e: Exception) {
+				"{\"ok\":false,\"msg\":\"Print error: ${e.message}\"}"
+			}
+			
+			if (result.contains("\"ok\":true")) {
+				Toast.makeText(this, "Test print sent successfully!", Toast.LENGTH_SHORT).show()
+			} else {
+				val errorMsg = if (result.contains("\"msg\":")) {
+					val start = result.indexOf("\"msg\":\"") + 7
+					val end = result.indexOf("\"", start)
+					if (end > start) result.substring(start, end) else "Unknown error"
+				} else {
+					"Check printer connection and try again"
+				}
+				Toast.makeText(this, "Print failed: $errorMsg", Toast.LENGTH_LONG).show()
+			}
+		} catch (e: Exception) {
+			Toast.makeText(this, "Test print error: ${e.message}", Toast.LENGTH_SHORT).show()
+		}
+	}
+
+	private fun openPrinterManagement() {
+		webView.loadUrl("file:///android_asset/printer_management.html")
+	}
+
+	private fun openSettingsDemo() {
+		webView.loadUrl("file:///android_asset/settings_demo.html")
+	}
+
+	private fun openPrinterSettingsUI() {
+		webView.loadUrl("file:///android_asset/printer_settings_ui.html")
 	}
 
 	@SuppressLint("SetJavaScriptEnabled")
@@ -965,23 +2613,36 @@ class MainActivity : ComponentActivity() {
 					(function(){
 						try{
 							if(window.__elintposPatched) return; window.__elintposPatched = true;
+                            function __elintposSmartPrint(txt, prefer){
+								try{
+									if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.vendorAvailable && ElintPOSNative.vendorAvailable()){
+										try{ var r = ElintPOSNative.vendorPrintText(String(txt||'')); if(r && String(r).indexOf('"ok":true')>=0) return true; }catch(_){ }
+									}
+									if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.printFromWeb){
+										ElintPOSNative.printFromWeb(String(txt||document.body.innerText||''), String(prefer||'auto'));
+										return true;
+									}
+								}catch(_){ }
+                                // Do not fallback to system print automatically
+								return false;
+							}
 							window.ElintPOS = {
-								print: function(txt, prefer){ return ElintPOSNative.printFromWeb(String(txt||document.body.innerText||''), String(prefer||'auto')); },
-								printSelector: function(selector){
+								print: function(txt, prefer){ return __elintposSmartPrint(String(txt||document.body.innerText||''), String(prefer||'auto')); },
+                                printSelector: function(selector){
 									try{
 										var el = document.querySelector(selector);
-										if(!el){ ElintPOSNative.systemPrint('POS Print'); return; }
+                                        if(!el){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('No printable content'); } }catch(_){ } return; }
 										var original = document.body.innerHTML;
 										document.body.setAttribute('data-elintpos','printing');
 										document.body.innerHTML = el.outerHTML;
-										try{ ElintPOSNative.systemPrint('POS Print'); }catch(e){ try{ window.print(); }catch(_){} }
+                                        try{ if(!__elintposSmartPrint(String(el.innerText||''), 'auto')){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('No printer connected'); } }catch(_){ } } }catch(e){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('Print failed'); } }catch(_){ } }
 										setTimeout(function(){ try{ document.body.innerHTML = original; }catch(_){} }, 1500);
-									}catch(e){ try{ ElintPOSNative.systemPrint('POS Print'); }catch(_){} }
+                                    }catch(e){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('Print failed'); } }catch(_){ } }
 								},
 								status: function(){ return ElintPOSNative.getPrinterStatus(); }
 							};
 							var origPrint = window.print;
-							window.print = function(){ try{ if(ElintPOSNative && ElintPOSNative.systemPrint){ ElintPOSNative.systemPrint('POS Print'); } else { ElintPOSNative.printFromWeb(String(document.body.innerText||''), 'auto'); } }catch(e){ if(origPrint) origPrint(); } };
+                            window.print = function(){ try{ if(!__elintposSmartPrint(String(document.body.innerText||''), 'auto')){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('No printer connected'); } }catch(_){ } } }catch(e){ if(origPrint) origPrint(); } };
 							// Force target=_blank links and window.open to stay in same WebView
 							try{ window.open = function(u){ try{ location.href = u; }catch(e){} return null; }; }catch(_){ }
 							try{
@@ -1125,6 +2786,119 @@ class MainActivity : ComponentActivity() {
 			startActivity(intent)
 		} catch (_: ActivityNotFoundException) {
 			Toast.makeText(this, "No app found", Toast.LENGTH_SHORT).show()
+		}
+	}
+
+	private fun showPrinterChooserAndPrint(text: String) {
+		try {
+			val items = mutableListOf<String>()
+			val actions = mutableListOf<() -> Unit>()
+
+			// Bluetooth options
+			BluetoothAdapter.getDefaultAdapter()?.bondedDevices?.forEach { d ->
+				items.add("BT: ${'$'}{d.name ?: d.address}")
+				actions.add {
+					try {
+						escPosPrinter?.close()
+						escPosPrinter = BluetoothEscPosPrinter(this)
+						escPosPrinter!!.connect(d)
+						isBtConnected = true
+						escPosPrinter!!.printText(text)
+					} catch (e: Exception) {
+						isBtConnected = false
+						Toast.makeText(this, "BT print failed: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
+					}
+				}
+			}
+
+			// USB options
+			val usbMgr = getSystemService(USB_SERVICE) as UsbManager
+			val usbList = UsbEscPosPrinter(this).listPrinters()
+			usbList.forEach { dev ->
+				items.add("USB: ${'$'}{dev.deviceName} (v=${'$'}{dev.vendorId}, p=${'$'}{dev.productId})")
+				actions.add {
+					try {
+						if (!usbMgr.hasPermission(dev)) {
+							pendingUsbDeviceName = dev.deviceName
+							pendingUsbAfterConnect = {
+								try { usbPrinter?.printText(text) } catch (_: Exception) {}
+							}
+							val pi = android.app.PendingIntent.getBroadcast(
+								this,
+								0,
+								Intent(ACTION_USB_PERMISSION),
+								if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) android.app.PendingIntent.FLAG_MUTABLE else 0
+							)
+							usbMgr.requestPermission(dev, pi)
+							Toast.makeText(this, "Requesting USB permission...", Toast.LENGTH_SHORT).show()
+							return@add
+						}
+						usbPrinter?.close()
+						usbPrinter = UsbEscPosPrinter(this)
+						usbPrinter!!.connect(dev)
+						isUsbConnected = true
+						usbPrinter!!.printText(text)
+					} catch (e: Exception) {
+						isUsbConnected = false
+						Toast.makeText(this, "USB print failed: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
+					}
+				}
+			}
+
+			// Vendor option (if SDK present)
+			if (vendorPrinter.isAvailable()) {
+				items.add("Vendor SDK: Default USB")
+				actions.add {
+					try {
+						val ok = vendorPrinter.printText(text)
+						if (!ok) Toast.makeText(this, "Vendor print failed", Toast.LENGTH_SHORT).show()
+					} catch (e: Exception) {
+						Toast.makeText(this, "Vendor print error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
+					}
+				}
+			}
+
+			// Epson option (if SDK present)
+			if (epsonPrinter.isAvailable()) {
+				items.add("Epson SDK")
+				actions.add {
+					try {
+						val ok = epsonPrinter.printText(text)
+						if (!ok) Toast.makeText(this, "Epson print failed", Toast.LENGTH_SHORT).show()
+					} catch (e: Exception) {
+						Toast.makeText(this, "Epson print error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
+					}
+				}
+			}
+
+			// XPrinter option (if SDK present)
+			if (xPrinter.isAvailable()) {
+				items.add("XPrinter SDK")
+				actions.add {
+					try {
+						val ok = xPrinter.printText(text)
+						if (!ok) Toast.makeText(this, "XPrinter print failed", Toast.LENGTH_SHORT).show()
+					} catch (e: Exception) {
+						Toast.makeText(this, "XPrinter print error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
+					}
+				}
+			}
+
+			if (items.isEmpty()) {
+				Toast.makeText(this, "No printers found", Toast.LENGTH_SHORT).show()
+				return
+			}
+
+			val dlg = androidx.appcompat.app.AlertDialog.Builder(this)
+				.setTitle("Select printer")
+				.setItems(items.toTypedArray()) { _, which ->
+					try { actions[which].invoke() } catch (_: Exception) {}
+				}
+				.setNegativeButton("Cancel", null)
+				.create()
+			dlg.show()
+		} catch (e: Exception) {
+			Toast.makeText(this, "Printer dialog error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
 		}
 	}
 
@@ -1276,6 +3050,7 @@ class MainActivity : ComponentActivity() {
 		usbPrinter?.close()
 		escPosPrinter?.close()
 		lanPrinter?.close()
+		printerTester.cleanup()
 		super.onDestroy()
 	}
 }

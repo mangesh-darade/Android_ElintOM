@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Match common USB printer interface class (7 = printer). Vendor/product IDs can be added if needed. -->
+    <usb-device class="7" />
+</resources>
+
+

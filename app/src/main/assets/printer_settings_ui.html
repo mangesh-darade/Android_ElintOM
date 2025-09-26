@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Printer Settings Configuration</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+
+        .os-info {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .os-info .info-line {
+            color: #6c757d;
+            font-size: 14px;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .os-info .info-line:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 8px;
+        }
+
+        .status-connected {
+            background-color: #28a745;
+        }
+
+        .status-disconnected {
+            background-color: #dc3545;
+        }
+
+        .status-unknown {
+            background-color: #ffc107;
+        }
+
+        .refresh-btn-container {
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .device-list {
+            background: #e9ecef;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 8px;
+            font-size: 12px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .device-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .device-item:last-child {
+            border-bottom: none;
+        }
+
+        .device-name {
+            font-weight: 500;
+            color: #495057;
+        }
+
+        .device-vid {
+            font-size: 11px;
+            color: #6c757d;
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        .radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .radio-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .radio-item:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .radio-item.selected {
+            border-color: #e91e63;
+            background: #fce4ec;
+        }
+
+        .radio-item input[type="radio"] {
+            display: none;
+        }
+
+        .radio-circle {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-radius: 50%;
+            margin-right: 12px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .radio-item.selected .radio-circle {
+            border-color: #e91e63;
+            background: #e91e63;
+        }
+
+        .radio-item.selected .radio-circle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+        }
+
+        .radio-label {
+            font-size: 16px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .remarks {
+            font-size: 12px;
+            color: #666;
+            font-style: italic;
+            margin-top: 8px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .checkbox-item:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .checkbox-item.checked {
+            border-color: #e91e63;
+            background: #fce4ec;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            display: none;
+        }
+
+        .checkbox-square {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-radius: 4px;
+            margin-right: 12px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .checkbox-item.checked .checkbox-square {
+            border-color: #e91e63;
+            background: #e91e63;
+        }
+
+        .checkbox-item.checked .checkbox-square::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .checkbox-label {
+            font-size: 16px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            padding: 15px 25px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-check {
+            background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+            color: white;
+        }
+
+        .btn-install {
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+            color: white;
+        }
+
+        .btn-usb {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+            color: white;
+        }
+
+        .btn-exit {
+            background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+            color: white;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+            display: none;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .printer-series {
+            display: none;
+        }
+
+        .printer-series.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖨️ Printer Configuration</h1>
+            <p>Configure your printer settings for optimal performance</p>
+        </div>
+
+        <div class="content">
+            <!-- OS Detection Section -->
+            <div class="section">
+                <div class="section-title">OS Detection & Device Status</div>
+                <div class="os-info">
+                    <div class="info-line" id="os-version">Loading Android version...</div>
+                    <div class="info-line" id="device-info">Loading device info...</div>
+                    <div class="info-line" id="printer-status">Checking printer connections...</div>
+                    <div class="info-line" id="usb-devices">Scanning USB devices...</div>
+                </div>
+                <div class="refresh-btn-container">
+                    <button class="refresh-btn" onclick="refreshDeviceStatus()">🔄 Refresh Status</button>
+                </div>
+            </div>
+
+            <!-- Printer Model Selection -->
+            <div class="section">
+                <div class="section-title">Select Printer Model</div>
+                <div class="radio-group">
+                    <div class="radio-item" data-model="XP-58C">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">XP-58C</div>
+                    </div>
+                    <div class="radio-item selected" data-model="XP-80">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">XP-80</div>
+                    </div>
+                    <div class="radio-item" data-model="XP-80C">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">XP-80C</div>
+                    </div>
+                    <div class="radio-item" data-model="XP-90">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">XP-90</div>
+                    </div>
+                    <div class="radio-item" data-model="XP-76">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">XP-76</div>
+                    </div>
+                    <div class="radio-item" data-model="XP-76C">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">XP-76C</div>
+                    </div>
+                </div>
+                <div class="remarks">*Remarks: "C" means item with cutter</div>
+            </div>
+
+            <!-- Printer Configuration -->
+            <div class="section">
+                <div class="section-title">Select Printer Configuration</div>
+                <div class="radio-group">
+                    <div class="radio-item selected" data-config="standard">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">Standard POS Printer</div>
+                    </div>
+                    <div class="radio-item" data-config="xprinter">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">Xprinter Compatible</div>
+                    </div>
+                    <div class="radio-item" data-config="custom">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">Custom Configuration</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Printer Interface -->
+            <div class="section">
+                <div class="section-title">Printer Interface</div>
+                <div class="radio-group">
+                    <div class="radio-item selected" data-interface="usb">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">USB</div>
+                    </div>
+                    <div class="radio-item" data-interface="bluetooth">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">Bluetooth</div>
+                    </div>
+                    <div class="radio-item" data-interface="network">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">Network (WiFi/Ethernet)</div>
+                    </div>
+                    <div class="radio-item" data-interface="serial">
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">Serial Port</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Printer Series (Hidden by default) -->
+            <div class="section printer-series" id="printer-series-section">
+                <div class="section-title">Select Printer Series</div>
+                <div class="radio-group" id="printer-series-options">
+                    <!-- Will be populated dynamically -->
+                </div>
+            </div>
+
+            <!-- General Settings -->
+            <div class="section">
+                <div class="section-title">General Settings</div>
+                <div class="checkbox-group">
+                    <div class="checkbox-item checked" data-setting="default">
+                        <div class="checkbox-square"></div>
+                        <div class="checkbox-label">Set as Default Printer</div>
+                    </div>
+                    <div class="checkbox-item checked" data-setting="autoconnect">
+                        <div class="checkbox-square"></div>
+                        <div class="checkbox-label">Auto Connect on Startup</div>
+                    </div>
+                    <div class="checkbox-item" data-setting="testprint">
+                        <div class="checkbox-square"></div>
+                        <div class="checkbox-label">Run Test Print After Setup</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Message -->
+            <div class="status-message" id="status-message"></div>
+
+            <!-- Loading Indicator -->
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div>Processing...</div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button class="btn btn-check" id="check-connection">CHECK CONNECTION</button>
+                <button class="btn btn-usb" id="auto-connect-usb">AUTO CONNECT USB</button>
+                <button class="btn btn-install" id="install-config">INSTALL CONFIGURATION</button>
+                <button class="btn btn-exit" id="exit-settings">EXIT</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let selectedModel = 'XP-80';
+        let selectedConfig = 'standard';
+        let selectedInterface = 'usb';
+        let selectedSeries = '';
+        let settings = {
+            default: true,
+            autoconnect: true,
+            testprint: false
+        };
+
+        // Initialize the UI
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeUI();
+            setupEventListeners();
+            loadDeviceInfo();
+        });
+
+        function initializeUI() {
+            // Set up radio button groups
+            setupRadioGroup('.radio-group .radio-item[data-model]', 'model');
+            setupRadioGroup('.radio-group .radio-item[data-config]', 'config');
+            setupRadioGroup('.radio-group .radio-item[data-interface]', 'interface');
+            
+            // Set up checkbox group
+            setupCheckboxGroup();
+        }
+
+        function setupRadioGroup(selector, type) {
+            const items = document.querySelectorAll(selector);
+            items.forEach(item => {
+                item.addEventListener('click', function() {
+                    // Remove selected class from all items in this group
+                    const group = this.closest('.radio-group');
+                    group.querySelectorAll('.radio-item').forEach(el => el.classList.remove('selected'));
+                    
+                    // Add selected class to clicked item
+                    this.classList.add('selected');
+                    
+                    // Update global variable
+                    if (type === 'model') {
+                        selectedModel = this.dataset.model;
+                        updatePrinterSeries();
+                    } else if (type === 'config') {
+                        selectedConfig = this.dataset.config;
+                    } else if (type === 'interface') {
+                        selectedInterface = this.dataset.interface;
+                    }
+                });
+            });
+        }
+
+        function setupCheckboxGroup() {
+            const checkboxes = document.querySelectorAll('.checkbox-item');
+            checkboxes.forEach(item => {
+                item.addEventListener('click', function() {
+                    this.classList.toggle('checked');
+                    const setting = this.dataset.setting;
+                    settings[setting] = this.classList.contains('checked');
+                });
+            });
+        }
+
+        function updatePrinterSeries() {
+            const seriesSection = document.getElementById('printer-series-section');
+            const seriesOptions = document.getElementById('printer-series-options');
+            
+            // Define printer series based on model
+            const seriesMap = {
+                'XP-58C': ['Epson TM-T20', 'Epson TM-T20III', 'Epson TM-T20IV'],
+                'XP-80': ['Epson TM-T20', 'Epson TM-T20III', 'Epson TM-T20IV'],
+                'XP-80C': ['Epson TM-T20III', 'Epson TM-T20IV', 'Epson TM-T88VI'],
+                'XP-90': ['Epson TM-T90', 'Epson TM-T90IV', 'Epson TM-T90V'],
+                'XP-76': ['Epson TM-T76', 'Epson TM-T76IV', 'Epson TM-T76V'],
+                'XP-76C': ['Epson TM-T76IV', 'Epson TM-T76V', 'Epson TM-T88VI']
+            };
+
+            const series = seriesMap[selectedModel] || [];
+            
+            if (series.length > 0) {
+                seriesOptions.innerHTML = '';
+                series.forEach((serie, index) => {
+                    const item = document.createElement('div');
+                    item.className = `radio-item ${index === 0 ? 'selected' : ''}`;
+                    item.dataset.series = serie;
+                    item.innerHTML = `
+                        <div class="radio-circle"></div>
+                        <div class="radio-label">${serie}</div>
+                    `;
+                    seriesOptions.appendChild(item);
+                });
+                
+                seriesSection.classList.add('show');
+                setupRadioGroup('#printer-series-options .radio-item', 'series');
+                selectedSeries = series[0];
+            } else {
+                seriesSection.classList.remove('show');
+                selectedSeries = '';
+            }
+        }
+
+        function loadDeviceInfo() {
+            // Try to get device info from native Android
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    // Get real device info
+                    const osVersion = 'Android ' + (typeof android !== 'undefined' ? android.os.Build.VERSION.RELEASE : 'Unknown') + ' (API ' + (typeof android !== 'undefined' ? android.os.Build.VERSION.SDK_INT : 'Unknown') + ')';
+                    const deviceInfo = (typeof android !== 'undefined' ? android.os.Build.MANUFACTURER + ' ' + android.os.Build.MODEL : 'Unknown Device');
+                    
+                    updateDeviceInfo(osVersion, deviceInfo);
+                    
+                    // Load printer connection status
+                    loadPrinterStatus();
+                } catch (e) {
+                    console.log('Could not load device info:', e);
+                    updateDeviceInfo('Android (Unknown)', 'Unknown Device');
+                    loadPrinterStatus();
+                }
+            } else {
+                // Fallback for web testing
+                updateDeviceInfo('Android (Web Test)', 'Web Browser');
+                loadPrinterStatus();
+            }
+        }
+        
+        function loadPrinterStatus() {
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    // Get printer connection status
+                    const statusJson = ElintPOSNative.getPrinterConnectionStatus();
+                    const status = JSON.parse(statusJson);
+                    
+                    updatePrinterStatus(status);
+                } catch (e) {
+                    console.log('Could not get printer status:', e);
+                    updatePrinterStatus({
+                        usb: false,
+                        bluetooth: false,
+                        lan: false,
+                        availableUsbDevices: []
+                    });
+                }
+            } else {
+                // Fallback for web testing
+                updatePrinterStatus({
+                    usb: false,
+                    bluetooth: false,
+                    lan: false,
+                    availableUsbDevices: []
+                });
+            }
+        }
+        
+        function refreshDeviceStatus() {
+            showStatus('Refreshing device status...', 'info');
+            loadDeviceInfo();
+            setTimeout(() => {
+                showStatus('Device status refreshed', 'success');
+            }, 1000);
+        }
+
+        function updateDeviceInfo(osVersion, deviceInfo) {
+            document.getElementById('os-version').textContent = osVersion;
+            document.getElementById('device-info').textContent = `Device: ${deviceInfo}`;
+        }
+        
+        function updatePrinterStatus(status) {
+            // Update printer connection status
+            const printerStatusEl = document.getElementById('printer-status');
+            const usbDevicesEl = document.getElementById('usb-devices');
+            
+            // Create status indicators
+            const usbStatus = status.usb ? 'Connected' : 'Disconnected';
+            const btStatus = status.bluetooth ? 'Connected' : 'Disconnected';
+            const lanStatus = status.lan ? 'Connected' : 'Disconnected';
+            
+            const usbIndicator = status.usb ? 'status-connected' : 'status-disconnected';
+            const btIndicator = status.bluetooth ? 'status-connected' : 'status-disconnected';
+            const lanIndicator = status.lan ? 'status-connected' : 'status-disconnected';
+            
+            printerStatusEl.innerHTML = `
+                <span>Printer Status:</span>
+                <div style="display: flex; gap: 15px; margin-top: 5px;">
+                    <span>USB <span class="status-indicator ${usbIndicator}"></span> ${usbStatus}</span>
+                    <span>BT <span class="status-indicator ${btIndicator}"></span> ${btStatus}</span>
+                    <span>LAN <span class="status-indicator ${lanIndicator}"></span> ${lanStatus}</span>
+                </div>
+            `;
+            
+            // Update USB devices list
+            if (status.availableUsbDevices && status.availableUsbDevices.length > 0) {
+                const deviceList = status.availableUsbDevices.map(device => `
+                    <div class="device-item">
+                        <div style="flex: 1;">
+                            <div class="device-name">${device.deviceName || 'Unknown Device'}</div>
+                            <div style="font-size: 11px; color: #6c757d; margin-top: 2px;">
+                                VID: 0x${device.vendorId.toString(16).toUpperCase()} | 
+                                PID: 0x${device.productId.toString(16).toUpperCase()}
+                            </div>
+                        </div>
+                        <button class="connect-device-btn" onclick="connectToDevice('${device.deviceName}')" 
+                                style="background: #17a2b8; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">
+                            Connect
+                        </button>
+                    </div>
+                `).join('');
+                
+                usbDevicesEl.innerHTML = `
+                    <div style="font-weight: 500; margin-bottom: 8px; color: #495057;">Connected USB Devices:</div>
+                    <div class="device-list">${deviceList}</div>
+                `;
+            } else {
+                usbDevicesEl.innerHTML = `
+                    <div style="color: #6c757d; font-style: italic;">No USB devices detected</div>
+                `;
+            }
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+            statusEl.style.display = 'block';
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+
+        function showLoading(show = true) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function setupEventListeners() {
+            // Check Connection button
+            document.getElementById('check-connection').addEventListener('click', function() {
+                checkConnection();
+            });
+
+            // Auto Connect USB button
+            document.getElementById('auto-connect-usb').addEventListener('click', function() {
+                autoConnectUsb();
+            });
+
+            // Install Configuration button
+            document.getElementById('install-config').addEventListener('click', function() {
+                installConfiguration();
+            });
+
+            // Exit button
+            document.getElementById('exit-settings').addEventListener('click', function() {
+                exitSettings();
+            });
+        }
+
+        function checkConnection() {
+            showLoading(true);
+            showStatus('Checking printer connection...', 'info');
+            
+            // Simulate connection check
+            setTimeout(() => {
+                showLoading(false);
+                
+                // Try to use native Android printer check
+                if (typeof ElintPOSNative !== 'undefined') {
+                    try {
+                        const status = ElintPOSNative.getPrinterStatus();
+                        if (status && status.includes('"ok":true')) {
+                            showStatus('✅ Printer connection successful!', 'success');
+                        } else {
+                            showStatus('❌ Printer connection failed. Please check your settings.', 'error');
+                        }
+                    } catch (e) {
+                        showStatus('❌ Error checking connection: ' + e.message, 'error');
+                    }
+                } else {
+                    // Fallback simulation
+                    const success = Math.random() > 0.3; // 70% success rate for demo
+                    if (success) {
+                        showStatus('✅ Printer connection successful!', 'success');
+                    } else {
+                        showStatus('❌ Printer connection failed. Please check your settings.', 'error');
+                    }
+                }
+            }, 2000);
+        }
+        
+        function autoConnectUsb() {
+            showLoading(true);
+            showStatus('Auto-connecting USB printer...', 'info');
+            
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    const result = ElintPOSNative.autoConnectUsbPrinter();
+                    const response = JSON.parse(result);
+                    
+                    showLoading(false);
+                    
+                    if (response.ok) {
+                        showStatus(response.msg, 'success');
+                        // Refresh device status to show updated connection
+                        setTimeout(() => {
+                            refreshDeviceStatus();
+                        }, 1000);
+                    } else {
+                        showStatus(response.msg, 'error');
+                    }
+                } catch (e) {
+                    showLoading(false);
+                    showStatus('Failed to auto-connect USB printer: ' + e.message, 'error');
+                }
+            } else {
+                showLoading(false);
+                showStatus('Native interface not available', 'error');
+            }
+        }
+        
+        function connectToDevice(devicePath) {
+            showLoading(true);
+            showStatus(`Connecting to device: ${devicePath}...`, 'info');
+            
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    const result = ElintPOSNative.connectUsbDeviceByPath(devicePath);
+                    const response = JSON.parse(result);
+                    
+                    showLoading(false);
+                    
+                    if (response.ok) {
+                        showStatus(response.msg, 'success');
+                        // Refresh device status to show updated connection
+                        setTimeout(() => {
+                            refreshDeviceStatus();
+                        }, 1000);
+                    } else {
+                        showStatus(response.msg, 'error');
+                    }
+                } catch (e) {
+                    showLoading(false);
+                    showStatus('Failed to connect to device: ' + e.message, 'error');
+                }
+            } else {
+                showLoading(false);
+                showStatus('Native interface not available', 'error');
+            }
+        }
+
+        function installConfiguration() {
+            showLoading(true);
+            showStatus('Installing printer configuration...', 'info');
+            
+            // Prepare configuration data
+            const config = {
+                model: selectedModel,
+                config: selectedConfig,
+                interface: selectedInterface,
+                series: selectedSeries,
+                settings: settings,
+                timestamp: new Date().toISOString()
+            };
+            
+            // Try to use native Android configuration
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    // Save configuration using native method
+                    const result = ElintPOSNative.savePrinterProfile(JSON.stringify({
+                        name: `${selectedModel} - ${selectedConfig} - ${selectedInterface}`,
+                        type: selectedInterface,
+                        enabled: true,
+                        paperWidth: selectedModel.includes('58') ? 384 : selectedModel.includes('80') ? 576 : 832,
+                        leftMargin: 0,
+                        rightMargin: 0,
+                        lineSpacing: 30,
+                        widthMultiplier: 0,
+                        heightMultiplier: 0,
+                        charset: 'UTF-8',
+                        autoConnect: settings.autoconnect,
+                        timeout: 5000,
+                        connectionParams: {
+                            model: selectedModel,
+                            series: selectedSeries,
+                            config: selectedConfig
+                        },
+                        isDefault: settings.default,
+                        lastUsed: Date.now()
+                    }));
+                    
+                    if (result && result.includes('"ok":true')) {
+                        showStatus('✅ Configuration installed successfully!', 'success');
+                        
+                        // Run test print if enabled
+                        if (settings.testprint) {
+                            setTimeout(() => {
+                                runTestPrint();
+                            }, 1000);
+                        }
+                    } else {
+                        showStatus('❌ Failed to install configuration.', 'error');
+                    }
+                } catch (e) {
+                    showStatus('❌ Error installing configuration: ' + e.message, 'error');
+                }
+            } else {
+                // Fallback simulation
+                setTimeout(() => {
+                    showLoading(false);
+                    showStatus('✅ Configuration installed successfully!', 'success');
+                    
+                    if (settings.testprint) {
+                        setTimeout(() => {
+                            runTestPrint();
+                        }, 1000);
+                    }
+                }, 2000);
+            }
+        }
+
+        function runTestPrint() {
+            showStatus('Running test print...', 'info');
+            
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    const testText = `
+================================
+PRINTER CONFIGURATION TEST
+================================
+
+Model: ${selectedModel}
+Configuration: ${selectedConfig}
+Interface: ${selectedInterface}
+Series: ${selectedSeries}
+
+Settings:
+- Default Printer: ${settings.default ? 'Yes' : 'No'}
+- Auto Connect: ${settings.autoconnect ? 'Yes' : 'No'}
+
+This is a test print to verify
+your printer configuration is
+working correctly.
+
+Timestamp: ${new Date().toLocaleString()}
+================================
+                    `;
+                    
+                    const result = ElintPOSNative.printFromWeb(testText, selectedInterface);
+                    if (result && result.includes('"ok":true')) {
+                        showStatus('✅ Test print completed successfully!', 'success');
+                    } else {
+                        showStatus('❌ Test print failed.', 'error');
+                    }
+                } catch (e) {
+                    showStatus('❌ Error running test print: ' + e.message, 'error');
+                }
+            } else {
+                // Fallback simulation
+                setTimeout(() => {
+                    showStatus('✅ Test print completed successfully!', 'success');
+                }, 1500);
+            }
+        }
+
+        function exitSettings() {
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    ElintPOSNative.showToast('Settings saved. Returning to main screen.');
+                } catch (e) {
+                    console.log('Could not show toast:', e);
+                }
+            }
+            
+            // Close the settings (this would typically close the WebView or navigate back)
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                // Fallback: reload the main page
+                window.location.href = 'index.html';
+            }
+        }
+
+        // Initialize printer series on page load
+        updatePrinterSeries();
+    </script>
+</body>
+</html>

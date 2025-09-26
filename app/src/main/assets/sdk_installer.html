@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDK Installer - ElintPOS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .sdk-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            background: #f8f9fa;
+        }
+
+        .sdk-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .sdk-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .sdk-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-available {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-not-available {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-installing {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .sdk-description {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .sdk-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+            color: white;
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+            display: none;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+            display: none;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .install-all-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 2px solid #dee2e6;
+            border-radius: 10px;
+            padding: 25px;
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .install-all-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .install-all-section p {
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .sdk-info {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 6px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .sdk-info h4 {
+            color: #1976d2;
+            margin-bottom: 10px;
+        }
+
+        .sdk-info ul {
+            margin-left: 20px;
+            color: #666;
+        }
+
+        .sdk-info li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 SDK Installer</h1>
+            <p>Install printer SDKs for enhanced functionality</p>
+        </div>
+        
+        <div class="content">
+            <!-- Epson SDK Section -->
+            <div class="sdk-section" id="epson-section">
+                <div class="sdk-header">
+                    <div class="sdk-title">Epson ePOS2 SDK</div>
+                    <div class="sdk-status status-not-available" id="epson-status">Not Available</div>
+                </div>
+                
+                <div class="sdk-description">
+                    The Epson ePOS2 SDK provides advanced printing capabilities for Epson thermal printers.
+                    It supports receipt printing, label printing, and various formatting options.
+                    <br><br>
+                    <strong>Note:</strong> Due to repository access restrictions, this SDK requires manual installation.
+                    Click "Install Epson SDK" to get detailed instructions.
+                </div>
+                
+                <div class="sdk-actions">
+                    <button class="btn btn-primary" id="install-epson" onclick="installEpsonSdk()">Get Installation Instructions</button>
+                    <button class="btn btn-secondary" onclick="checkEpsonStatus()">Check Status</button>
+                </div>
+                
+                <div class="progress-bar" id="epson-progress">
+                    <div class="progress-fill" id="epson-progress-fill"></div>
+                </div>
+                
+                <div class="sdk-info">
+                    <h4>Epson SDK Features:</h4>
+                    <ul>
+                        <li>Receipt and label printing</li>
+                        <li>Barcode and QR code generation</li>
+                        <li>Image printing support</li>
+                        <li>Advanced formatting options</li>
+                        <li>Multiple printer model support</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- XPrinter SDK Section -->
+            <div class="sdk-section" id="xprinter-section">
+                <div class="sdk-header">
+                    <div class="sdk-title">XPrinter Android SDK</div>
+                    <div class="sdk-status status-not-available" id="xprinter-status">Not Available</div>
+                </div>
+                
+                <div class="sdk-description">
+                    The XPrinter Android SDK provides comprehensive printing solutions for XPrinter thermal printers.
+                    It offers native Android integration and optimized performance.
+                </div>
+                
+                <div class="sdk-actions">
+                    <button class="btn btn-primary" id="install-xprinter" onclick="installXPrinterSdk()">Install XPrinter SDK</button>
+                    <button class="btn btn-secondary" onclick="checkXPrinterStatus()">Check Status</button>
+                </div>
+                
+                <div class="progress-bar" id="xprinter-progress">
+                    <div class="progress-fill" id="xprinter-progress-fill"></div>
+                </div>
+                
+                <div class="sdk-info">
+                    <h4>XPrinter SDK Features:</h4>
+                    <ul>
+                        <li>Thermal receipt printing</li>
+                        <li>Bluetooth and USB connectivity</li>
+                        <li>Custom paper size support</li>
+                        <li>High-speed printing</li>
+                        <li>Multi-language support</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Install All Section -->
+            <div class="install-all-section">
+                <h3>🚀 Quick Install</h3>
+                <p>Install all available SDKs at once for maximum compatibility</p>
+                <button class="btn btn-success" onclick="installAllSdks()">Install All SDKs</button>
+            </div>
+
+            <!-- Status Messages -->
+            <div class="status-message" id="status-message"></div>
+            
+            <!-- Loading Indicator -->
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div>Installing SDKs...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAllSdkStatus();
+        });
+
+        function showStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+            statusEl.style.display = 'block';
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                statusEl.style.display = 'none';
+            }, 5000);
+        }
+
+        function showLoading(show = true) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function updateProgress(progressId, percentage) {
+            const progressBar = document.getElementById(progressId);
+            const progressFill = document.getElementById(progressId + '-fill');
+            
+            if (percentage > 0) {
+                progressBar.style.display = 'block';
+                progressFill.style.width = percentage + '%';
+            } else {
+                progressBar.style.display = 'none';
+            }
+        }
+
+        function updateSdkStatus(sdkName, available) {
+            const statusEl = document.getElementById(sdkName + '-status');
+            const installBtn = document.getElementById('install-' + sdkName);
+            
+            if (available) {
+                statusEl.textContent = 'Available';
+                statusEl.className = 'sdk-status status-available';
+                installBtn.textContent = 'Reinstall';
+                installBtn.className = 'btn btn-warning';
+            } else {
+                statusEl.textContent = 'Not Available';
+                statusEl.className = 'sdk-status status-not-available';
+                installBtn.textContent = 'Install ' + sdkName.charAt(0).toUpperCase() + sdkName.slice(1) + ' SDK';
+                installBtn.className = 'btn btn-primary';
+            }
+        }
+
+        function checkAllSdkStatus() {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.checkSdkAvailability === 'function') {
+                try {
+                    const result = ElintPOSNative.checkSdkAvailability();
+                    const response = JSON.parse(result);
+                    
+                    if (response.ok) {
+                        const availability = response.availability;
+                        updateSdkStatus('epson', availability.epson_sdk_available);
+                        updateSdkStatus('xprinter', availability.xprinter_sdk_available);
+                    } else {
+                        showStatus('Error checking SDK status: ' + response.msg, 'error');
+                    }
+                } catch (e) {
+                    showStatus('Error checking SDK status: ' + e.message, 'error');
+                }
+            } else {
+                showStatus('Native interface not available', 'error');
+            }
+        }
+
+        function checkEpsonStatus() {
+            checkAllSdkStatus();
+            showStatus('Epson SDK status updated', 'info');
+        }
+
+        function checkXPrinterStatus() {
+            checkAllSdkStatus();
+            showStatus('XPrinter SDK status updated', 'info');
+        }
+
+        function installEpsonSdk() {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.downloadEpsonSdk === 'function') {
+                showLoading(true);
+                updateProgress('epson-progress', 10);
+                
+                try {
+                    const result = ElintPOSNative.downloadEpsonSdk();
+                    const response = JSON.parse(result);
+                    
+                    updateProgress('epson-progress', 100);
+                    
+                    if (response.ok) {
+                        showStatus('Epson SDK installed successfully!', 'success');
+                        updateSdkStatus('epson', true);
+                    } else {
+                        showStatus('Epson SDK installation failed: ' + response.msg, 'error');
+                    }
+                } catch (e) {
+                    showStatus('Error installing Epson SDK: ' + e.message, 'error');
+                } finally {
+                    showLoading(false);
+                    updateProgress('epson-progress', 0);
+                }
+            } else {
+                showStatus('Epson SDK installation not available', 'error');
+            }
+        }
+
+        function installXPrinterSdk() {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.downloadXPrinterSdk === 'function') {
+                showLoading(true);
+                updateProgress('xprinter-progress', 10);
+                
+                try {
+                    const result = ElintPOSNative.downloadXPrinterSdk();
+                    const response = JSON.parse(result);
+                    
+                    updateProgress('xprinter-progress', 100);
+                    
+                    if (response.ok) {
+                        showStatus('XPrinter SDK processed: ' + response.msg, 'info');
+                        updateSdkStatus('xprinter', false); // XPrinter requires manual installation
+                    } else {
+                        showStatus('XPrinter SDK processing failed: ' + response.msg, 'error');
+                    }
+                } catch (e) {
+                    showStatus('Error processing XPrinter SDK: ' + e.message, 'error');
+                } finally {
+                    showLoading(false);
+                    updateProgress('xprinter-progress', 0);
+                }
+            } else {
+                showStatus('XPrinter SDK installation not available', 'error');
+            }
+        }
+
+        function installAllSdks() {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.installAllSdks === 'function') {
+                showLoading(true);
+                
+                try {
+                    const result = ElintPOSNative.installAllSdks();
+                    const response = JSON.parse(result);
+                    
+                    if (response.ok) {
+                        showStatus('SDK installation completed:\n' + response.msg, 'success');
+                        checkAllSdkStatus();
+                    } else {
+                        showStatus('SDK installation failed: ' + response.msg, 'error');
+                    }
+                } catch (e) {
+                    showStatus('Error installing SDKs: ' + e.message, 'error');
+                } finally {
+                    showLoading(false);
+                }
+            } else {
+                showStatus('SDK installation not available', 'error');
+            }
+        }
+    </script>
+</body>
+</html>

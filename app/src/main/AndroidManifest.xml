@@ -75,6 +75,14 @@
 				<data android:scheme="http" android:host="devmeenatshi.elintpos.in" />
 				<data android:scheme="https" android:host="devmeenatshi.elintpos.in" />
 			</intent-filter>
+
+			<!-- Launch/bring app to front when a matching USB printer is attached -->
+			<intent-filter>
+				<action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+			</intent-filter>
+			<meta-data
+				android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+				android:resource="@xml/usb_device_filter" />
 		</activity>
 
 		<activity

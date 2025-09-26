@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dialog Print Demo - ElintPOS</title>
+    <style>
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .demo-section {
+            margin-bottom: 40px;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        .demo-section h2 {
+            color: #333;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 600px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px 10px 0 0;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid #e9ecef;
+            text-align: right;
+        }
+
+        .close {
+            color: white;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            opacity: 0.8;
+        }
+
+        .close:hover {
+            opacity: 1;
+        }
+
+        /* Popup Styles */
+        .popup {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            min-width: 300px;
+            max-width: 500px;
+        }
+
+        .popup-header {
+            background: #28a745;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 8px 8px 0 0;
+            font-weight: 600;
+        }
+
+        .popup-body {
+            padding: 20px;
+        }
+
+        .popup-footer {
+            padding: 15px 20px;
+            border-top: 1px solid #e9ecef;
+            text-align: right;
+        }
+
+        /* Alert Styles */
+        .alert {
+            display: none;
+            position: fixed;
+            z-index: 1002;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            padding: 20px;
+            min-width: 300px;
+            max-width: 400px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .alert-header {
+            font-weight: 600;
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .alert-body {
+            color: #856404;
+            margin-bottom: 15px;
+        }
+
+        .alert-footer {
+            text-align: right;
+        }
+
+        /* Invoice Styles */
+        .invoice {
+            display: none;
+            position: fixed;
+            z-index: 1003;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .invoice-header {
+            background: #17a2b8;
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+        }
+
+        .invoice-body {
+            padding: 20px;
+        }
+
+        .invoice-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .invoice-total {
+            font-weight: bold;
+            font-size: 18px;
+            color: #333;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #333;
+        }
+
+        .invoice-footer {
+            padding: 15px 20px;
+            border-top: 1px solid #e9ecef;
+            text-align: center;
+            background: #f8f9fa;
+        }
+
+        /* Receipt Styles */
+        .receipt {
+            display: none;
+            position: fixed;
+            z-index: 1004;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .receipt-header {
+            background: #dc3545;
+            color: white;
+            padding: 15px;
+            border-radius: 8px 8px 0 0;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+        }
+
+        .receipt-body {
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .receipt-line {
+            margin: 2px 0;
+        }
+
+        .receipt-total {
+            font-weight: bold;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px dashed #333;
+        }
+
+        .receipt-footer {
+            padding: 10px 15px;
+            text-align: center;
+            background: #f8f9fa;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+        }
+
+        /* Status indicator */
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖨️ Dialog Print Demo</h1>
+            <p>Test printing from popups, modals, and alerts</p>
+        </div>
+
+        <div class="content">
+            <!-- Printer Status -->
+            <div class="demo-section">
+                <h2>📊 Printer Status</h2>
+                <div id="printer-status" class="status disconnected">
+                    Checking printer connection...
+                </div>
+                <button class="btn" onclick="checkPrinterStatus()">🔄 Refresh Status</button>
+                <button class="btn btn-secondary" onclick="refreshAllPrintButtons()">🔄 Refresh Print Buttons</button>
+            </div>
+
+            <!-- Modal Demo -->
+            <div class="demo-section">
+                <h2>📋 Modal Dialog</h2>
+                <p>Click the button below to open a modal dialog with a print button:</p>
+                <button class="btn" onclick="openModal()">Open Modal Dialog</button>
+            </div>
+
+            <!-- Popup Demo -->
+            <div class="demo-section">
+                <h2>💬 Popup Dialog</h2>
+                <p>Click the button below to open a popup dialog with a print button:</p>
+                <button class="btn" onclick="openPopup()">Open Popup Dialog</button>
+            </div>
+
+            <!-- Alert Demo -->
+            <div class="demo-section">
+                <h2>⚠️ Alert Dialog</h2>
+                <p>Click the button below to open an alert dialog with a print button:</p>
+                <button class="btn" onclick="openAlert()">Open Alert Dialog</button>
+            </div>
+
+            <!-- Invoice Demo -->
+            <div class="demo-section">
+                <h2>🧾 Invoice Dialog</h2>
+                <p>Click the button below to open an invoice dialog with a print button:</p>
+                <button class="btn" onclick="openInvoice()">Open Invoice Dialog</button>
+            </div>
+
+            <!-- Receipt Demo -->
+            <div class="demo-section">
+                <h2>🧾 Receipt Dialog</h2>
+                <p>Click the button below to open a receipt dialog with a print button:</p>
+                <button class="btn" onclick="openReceipt()">Open Receipt Dialog</button>
+            </div>
+
+            <!-- Custom Dialog Demo -->
+            <div class="demo-section">
+                <h2>🎨 Custom Dialog</h2>
+                <p>Click the button below to create a custom dialog with a print button:</p>
+                <button class="btn" onclick="createCustomDialog()">Create Custom Dialog</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Dialog -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Order Confirmation</h3>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <h4>Order Details</h4>
+                <p><strong>Order ID:</strong> #12345</p>
+                <p><strong>Customer:</strong> John Doe</p>
+                <p><strong>Date:</strong> <span id="modal-date"></span></p>
+                <p><strong>Time:</strong> <span id="modal-time"></span></p>
+                <hr>
+                <h4>Items Ordered</h4>
+                <ul>
+                    <li>Burger & Fries - $12.99</li>
+                    <li>Soft Drink - $2.50</li>
+                    <li>Dessert - $4.99</li>
+                </ul>
+                <hr>
+                <p><strong>Total: $20.48</strong></p>
+                <p>Tax: $1.64</p>
+                <p><strong>Grand Total: $22.12</strong></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Popup Dialog -->
+    <div id="popup" class="popup">
+        <div class="popup-header">
+            Success!
+        </div>
+        <div class="popup-body">
+            <p>Your order has been processed successfully!</p>
+            <p><strong>Order ID:</strong> #12345</p>
+            <p><strong>Total Amount:</strong> $22.12</p>
+            <p>You will receive a confirmation email shortly.</p>
+        </div>
+        <div class="popup-footer">
+            <button class="btn btn-secondary" onclick="closePopup()">OK</button>
+        </div>
+    </div>
+
+    <!-- Alert Dialog -->
+    <div id="alert" class="alert">
+        <div class="alert-header">
+            Important Notice
+        </div>
+        <div class="alert-body">
+            This is an important alert message that can be printed. The system will automatically add a print button to this alert.
+        </div>
+        <div class="alert-footer">
+            <button class="btn btn-secondary" onclick="closeAlert()">OK</button>
+        </div>
+    </div>
+
+    <!-- Invoice Dialog -->
+    <div id="invoice" class="invoice">
+        <div class="invoice-header">
+            <h3>INVOICE</h3>
+            <p>Invoice #INV-12345</p>
+        </div>
+        <div class="invoice-body">
+            <div class="invoice-item">
+                <span>Bill To:</span>
+                <span>John Doe</span>
+            </div>
+            <div class="invoice-item">
+                <span>Date:</span>
+                <span id="invoice-date"></span>
+            </div>
+            <div class="invoice-item">
+                <span>Due Date:</span>
+                <span id="invoice-due-date"></span>
+            </div>
+            <hr>
+            <div class="invoice-item">
+                <span>Burger & Fries</span>
+                <span>$12.99</span>
+            </div>
+            <div class="invoice-item">
+                <span>Soft Drink</span>
+                <span>$2.50</span>
+            </div>
+            <div class="invoice-item">
+                <span>Dessert</span>
+                <span>$4.99</span>
+            </div>
+            <div class="invoice-item">
+                <span>Tax</span>
+                <span>$1.64</span>
+            </div>
+            <div class="invoice-total">
+                <span>Total: $22.12</span>
+            </div>
+        </div>
+        <div class="invoice-footer">
+            <p>Thank you for your business!</p>
+        </div>
+    </div>
+
+    <!-- Receipt Dialog -->
+    <div id="receipt" class="receipt">
+        <div class="receipt-header">
+            <h3>ELINTPOS RESTAURANT</h3>
+            <p>123 Main Street, City, State 12345</p>
+            <p>Phone: (555) 123-4567</p>
+        </div>
+        <div class="receipt-body">
+            <div class="receipt-line">Order #12345</div>
+            <div class="receipt-line">Date: <span id="receipt-date"></span></div>
+            <div class="receipt-line">Time: <span id="receipt-time"></span></div>
+            <div class="receipt-line">--------------------------------</div>
+            <div class="receipt-line">Burger & Fries        $12.99</div>
+            <div class="receipt-line">Soft Drink            $2.50</div>
+            <div class="receipt-line">Dessert               $4.99</div>
+            <div class="receipt-line">--------------------------------</div>
+            <div class="receipt-line">Subtotal:            $20.48</div>
+            <div class="receipt-line">Tax:                 $1.64</div>
+            <div class="receipt-total">TOTAL:              $22.12</div>
+            <div class="receipt-line">--------------------------------</div>
+            <div class="receipt-line">Payment: Cash</div>
+            <div class="receipt-line">Change: $0.00</div>
+        </div>
+        <div class="receipt-footer">
+            <p>Thank you for your business!</p>
+            <p>Visit us again soon!</p>
+        </div>
+    </div>
+
+    <!-- Include the ElintPOS printer library -->
+    <script src="file:///android_asset/elintpos-printer.js"></script>
+    
+    <script>
+        // Update current date and time
+        function updateDateTime() {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString();
+            const timeStr = now.toLocaleTimeString();
+            const dueDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString();
+            
+            document.getElementById('modal-date').textContent = dateStr;
+            document.getElementById('modal-time').textContent = timeStr;
+            document.getElementById('invoice-date').textContent = dateStr;
+            document.getElementById('invoice-due-date').textContent = dueDate;
+            document.getElementById('receipt-date').textContent = dateStr;
+            document.getElementById('receipt-time').textContent = timeStr;
+        }
+
+        // Check printer status
+        function checkPrinterStatus() {
+            if (window.elintposPrinter) {
+                window.elintposPrinter.getAvailablePrinters()
+                    .then(status => {
+                        const statusEl = document.getElementById('printer-status');
+                        
+                        if (status.usb || status.bluetooth || status.lan) {
+                            statusEl.className = 'status connected';
+                            statusEl.textContent = '✅ Printer(s) connected and ready!';
+                        } else {
+                            statusEl.className = 'status disconnected';
+                            statusEl.textContent = '❌ No printers connected. Please connect a printer first.';
+                        }
+                    })
+                    .catch(error => {
+                        const statusEl = document.getElementById('printer-status');
+                        statusEl.className = 'status disconnected';
+                        statusEl.textContent = '❌ Error checking printer status: ' + error;
+                    });
+            } else {
+                const statusEl = document.getElementById('printer-status');
+                statusEl.className = 'status disconnected';
+                statusEl.textContent = '❌ ElintPOS printer library not available';
+            }
+        }
+
+        // Refresh all print buttons
+        function refreshAllPrintButtons() {
+            if (window.elintposPrinter) {
+                window.elintposPrinter.refreshPrinterStatus();
+                checkPrinterStatus(); // Also update the main status
+            } else {
+                alert('ElintPOS printer library not available');
+            }
+        }
+
+        // Modal functions
+        function openModal() {
+            document.getElementById('modal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        // Popup functions
+        function openPopup() {
+            document.getElementById('popup').style.display = 'block';
+        }
+
+        function closePopup() {
+            document.getElementById('popup').style.display = 'none';
+        }
+
+        // Alert functions
+        function openAlert() {
+            document.getElementById('alert').style.display = 'block';
+        }
+
+        function closeAlert() {
+            document.getElementById('alert').style.display = 'none';
+        }
+
+        // Invoice functions
+        function openInvoice() {
+            document.getElementById('invoice').style.display = 'block';
+        }
+
+        function closeInvoice() {
+            document.getElementById('invoice').style.display = 'none';
+        }
+
+        // Receipt functions
+        function openReceipt() {
+            document.getElementById('receipt').style.display = 'block';
+        }
+
+        function closeReceipt() {
+            document.getElementById('receipt').style.display = 'none';
+        }
+
+        // Custom dialog function
+        function createCustomDialog() {
+            const dialog = document.createElement('div');
+            dialog.className = 'popup';
+            dialog.style.display = 'block';
+            dialog.innerHTML = `
+                <div class="popup-header">
+                    Custom Dialog
+                </div>
+                <div class="popup-body">
+                    <p>This is a custom dialog created dynamically!</p>
+                    <p><strong>Order ID:</strong> #CUSTOM-123</p>
+                    <p><strong>Amount:</strong> $99.99</p>
+                    <p>The print button will be automatically added to this dialog.</p>
+                </div>
+                <div class="popup-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.popup').remove()">Close</button>
+                </div>
+            `;
+            
+            document.body.appendChild(dialog);
+        }
+
+        // Close dialogs when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('modal');
+            const popup = document.getElementById('popup');
+            const alert = document.getElementById('alert');
+            const invoice = document.getElementById('invoice');
+            const receipt = document.getElementById('receipt');
+            
+            if (event.target === modal) {
+                closeModal();
+            }
+            if (event.target === popup) {
+                closePopup();
+            }
+            if (event.target === alert) {
+                closeAlert();
+            }
+            if (event.target === invoice) {
+                closeInvoice();
+            }
+            if (event.target === receipt) {
+                closeReceipt();
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            updateDateTime();
+            checkPrinterStatus();
+            
+            // Update time every second
+            setInterval(updateDateTime, 1000);
+        });
+    </script>
+</body>
+</html>

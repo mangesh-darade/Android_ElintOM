@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Print Demo - ElintPOS</title>
+    <style>
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .header p {
+            margin: 0;
+            opacity: 0.9;
+            font-size: 16px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+
+        .section h2 {
+            color: #333;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .section h3 {
+            color: #555;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .printable-content {
+            background: white;
+            padding: 20px;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .printable-content:hover {
+            background: #f8f9ff;
+            border-color: #5a6fd8;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .printer-info {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .printer-info h4 {
+            margin: 0 0 10px 0;
+            color: #0066cc;
+        }
+
+        .printer-info p {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .demo-content {
+            background: white;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+
+        .demo-content h4 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        .demo-content p {
+            color: #666;
+            margin: 10px 0;
+        }
+
+        .demo-content ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .demo-content li {
+            margin: 5px 0;
+            color: #666;
+        }
+
+        .code-block {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+            border-top: 1px solid #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🖨️ Web Print Demo</h1>
+            <p>Demonstration of ElintPOS Printer Integration</p>
+        </div>
+
+        <div class="content">
+            <!-- Printer Status Section -->
+            <div class="section">
+                <h2>📊 Printer Status</h2>
+                <div id="printer-status" class="status disconnected">
+                    Checking printer connection...
+                </div>
+                <div id="printer-info" class="printer-info" style="display: none;">
+                    <h4>Connected Printers:</h4>
+                    <div id="printer-list"></div>
+                </div>
+                <button class="btn" onclick="checkPrinterStatus()">🔄 Refresh Status</button>
+            </div>
+
+            <!-- Print Demo Section -->
+            <div class="section">
+                <h2>🖨️ Print Demo</h2>
+                <p>Try printing this page content using the connected printer:</p>
+                
+                <div class="printable-content">
+                    <h4>Sample Receipt</h4>
+                    <p><strong>ElintPOS Restaurant</strong></p>
+                    <p>123 Main Street, City, State 12345</p>
+                    <p>Phone: (555) 123-4567</p>
+                    <hr>
+                    <p><strong>Order #12345</strong></p>
+                    <p>Date: <span id="current-date"></span></p>
+                    <p>Time: <span id="current-time"></span></p>
+                    <hr>
+                    <p>Item 1: Burger & Fries - $12.99</p>
+                    <p>Item 2: Soft Drink - $2.50</p>
+                    <p>Item 3: Dessert - $4.99</p>
+                    <hr>
+                    <p><strong>Total: $20.48</strong></p>
+                    <p>Tax: $1.64</p>
+                    <p><strong>Grand Total: $22.12</strong></p>
+                    <hr>
+                    <p>Thank you for your business!</p>
+                    <p>Visit us again soon!</p>
+                </div>
+
+                <button class="btn" onclick="printPage()">🖨️ Print This Page</button>
+                <button class="btn btn-secondary" onclick="printSelection()">📄 Print Selection</button>
+            </div>
+
+            <!-- Features Section -->
+            <div class="section">
+                <h2>✨ Features</h2>
+                <div class="demo-content">
+                    <h4>Available Print Features:</h4>
+                    <ul>
+                        <li><span class="highlight">Floating Print Button</span> - Always visible print button</li>
+                        <li><span class="highlight">Keyboard Shortcut</span> - Press Ctrl+P to print</li>
+                        <li><span class="highlight">Context Menu</span> - Right-click to print selected text</li>
+                        <li><span class="highlight">Printer Selection</span> - Choose from connected printers</li>
+                        <li><span class="highlight">Print Settings</span> - Adjust paper width, line spacing, font size</li>
+                        <li><span class="highlight">Auto-Detection</span> - Automatically finds connected printers</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Integration Section -->
+            <div class="section">
+                <h2>🔧 Integration</h2>
+                <div class="demo-content">
+                    <h4>How to integrate in your web pages:</h4>
+                    <p>1. Include the ElintPOS printer library:</p>
+                    <div class="code-block">
+&lt;script src="file:///android_asset/elintpos-printer.js"&gt;&lt;/script&gt;
+                    </div>
+                    
+                    <p>2. The library automatically adds print functionality to your page</p>
+                    
+                    <p>3. Use JavaScript to print content programmatically:</p>
+                    <div class="code-block">
+// Print specific content
+elintposPrinter.printContent('Your content here');
+
+// Print with specific printer
+elintposPrinter.printContent('Your content here', 'usb');
+
+// Check printer status
+elintposPrinter.getAvailablePrinters().then(printers => {
+    console.log('Available printers:', printers);
+});
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Content Section -->
+            <div class="section">
+                <h2>🧪 Test Content</h2>
+                <div class="demo-content">
+                    <h4>Select this text and right-click to print selection:</h4>
+                    <p>This is a test paragraph that you can select and print. The ElintPOS printer integration will automatically detect when you right-click on selected text and provide a print option in the context menu.</p>
+                    
+                    <h4>Or try printing this entire section:</h4>
+                    <p>This section contains various types of content that can be printed:</p>
+                    <ul>
+                        <li>Text content</li>
+                        <li>Lists and bullet points</li>
+                        <li>Formatted text with <strong>bold</strong> and <em>italic</em> styles</li>
+                        <li>Special characters: @#$%^&*()</li>
+                        <li>Numbers: 1234567890</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>ElintPOS Printer Integration Demo | Use Ctrl+P or the print button to print this page</p>
+        </div>
+    </div>
+
+    <!-- Include the ElintPOS printer library -->
+    <script src="file:///android_asset/elintpos-printer.js"></script>
+    
+    <script>
+        // Update current date and time
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('current-date').textContent = now.toLocaleDateString();
+            document.getElementById('current-time').textContent = now.toLocaleTimeString();
+        }
+
+        // Check printer status
+        function checkPrinterStatus() {
+            if (window.elintposPrinter) {
+                window.elintposPrinter.getAvailablePrinters()
+                    .then(status => {
+                        const statusEl = document.getElementById('printer-status');
+                        const infoEl = document.getElementById('printer-info');
+                        const listEl = document.getElementById('printer-list');
+                        
+                        if (status.usb || status.bluetooth || status.lan) {
+                            statusEl.className = 'status connected';
+                            statusEl.textContent = '✅ Printer(s) connected and ready!';
+                            
+                            infoEl.style.display = 'block';
+                            listEl.innerHTML = '';
+                            
+                            if (status.usb) {
+                                listEl.innerHTML += '<p>🖨️ USB Printer - Connected</p>';
+                            }
+                            if (status.bluetooth) {
+                                listEl.innerHTML += '<p>📱 Bluetooth Printer - Connected</p>';
+                            }
+                            if (status.lan) {
+                                listEl.innerHTML += '<p>🌐 LAN Printer - Connected</p>';
+                            }
+                        } else {
+                            statusEl.className = 'status disconnected';
+                            statusEl.textContent = '❌ No printers connected. Please connect a printer first.';
+                            infoEl.style.display = 'none';
+                        }
+                    })
+                    .catch(error => {
+                        const statusEl = document.getElementById('printer-status');
+                        statusEl.className = 'status disconnected';
+                        statusEl.textContent = '❌ Error checking printer status: ' + error;
+                    });
+            } else {
+                const statusEl = document.getElementById('printer-status');
+                statusEl.className = 'status disconnected';
+                statusEl.textContent = '❌ ElintPOS printer library not available';
+            }
+        }
+
+        // Print page content
+        function printPage() {
+            if (window.elintposPrinter) {
+                window.elintposPrinter.showPrinterSelector();
+            } else {
+                alert('ElintPOS printer library not available');
+            }
+        }
+
+        // Print selection
+        function printSelection() {
+            const selection = window.getSelection().toString();
+            if (selection.trim()) {
+                if (window.elintposPrinter) {
+                    window.elintposPrinter.printSelection(selection);
+                } else {
+                    alert('ElintPOS printer library not available');
+                }
+            } else {
+                alert('Please select some text first');
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            updateDateTime();
+            checkPrinterStatus();
+            
+            // Update time every second
+            setInterval(updateDateTime, 1000);
+        });
+    </script>
+</body>
+</html>

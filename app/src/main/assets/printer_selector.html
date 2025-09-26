@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Printer Selector</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', Arial, sans-serif;
+            background: rgba(0, 0, 0, 0.5);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .printer-selector {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 15px 15px 0 0;
+        }
+
+        .header h2 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 20px;
+        }
+
+        .printer-list {
+            margin-bottom: 20px;
+        }
+
+        .printer-item {
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .printer-item:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+        }
+
+        .printer-item.selected {
+            border-color: #28a745;
+            background: #f8fff9;
+        }
+
+        .printer-item.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .printer-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .printer-type {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .printer-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .status-connected {
+            background-color: #28a745;
+        }
+
+        .status-disconnected {
+            background-color: #dc3545;
+        }
+
+        .printer-details {
+            font-size: 11px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .no-printers {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6c757d;
+        }
+
+        .no-printers i {
+            font-size: 48px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        .refresh-btn {
+            background: #17a2b8;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+
+        .print-preview {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            font-size: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .print-options {
+            margin-bottom: 15px;
+        }
+
+        .print-option {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .print-option label {
+            font-size: 12px;
+            color: #495057;
+        }
+
+        .print-option input, .print-option select {
+            padding: 4px 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="printer-selector">
+        <div class="header">
+            <h2>🖨️ Select Printer</h2>
+            <p>Choose a printer for web content printing</p>
+        </div>
+        
+        <div class="content">
+            <button class="refresh-btn" onclick="refreshPrinters()">🔄 Refresh Printers</button>
+            
+            <div class="print-preview" id="print-preview">
+                <strong>Print Preview:</strong><br>
+                <span id="preview-content">Loading content...</span>
+            </div>
+            
+            <div class="print-options">
+                <div class="print-option">
+                    <label>Paper Width:</label>
+                    <select id="paper-width">
+                        <option value="384">80mm (384 dots)</option>
+                        <option value="576">58mm (576 dots)</option>
+                        <option value="832">80mm Wide (832 dots)</option>
+                    </select>
+                </div>
+                <div class="print-option">
+                    <label>Line Spacing:</label>
+                    <input type="range" id="line-spacing" min="0" max="50" value="30">
+                    <span id="line-spacing-value">30</span>
+                </div>
+                <div class="print-option">
+                    <label>Font Size:</label>
+                    <select id="font-size">
+                        <option value="1">Normal</option>
+                        <option value="2">Large</option>
+                        <option value="3">Extra Large</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="printer-list" id="printer-list">
+                <div class="no-printers">
+                    <div>🖨️</div>
+                    <div>Loading printers...</div>
+                </div>
+            </div>
+            
+            <div class="action-buttons">
+                <button class="btn btn-primary" id="print-btn" onclick="printContent()" disabled>Print</button>
+                <button class="btn btn-secondary" onclick="closeSelector()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let selectedPrinter = null;
+        let printContent = '';
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPrinters();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            // Line spacing slider
+            const lineSpacingSlider = document.getElementById('line-spacing');
+            const lineSpacingValue = document.getElementById('line-spacing-value');
+            
+            lineSpacingSlider.addEventListener('input', function() {
+                lineSpacingValue.textContent = this.value;
+            });
+        }
+
+        function loadPrinters() {
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    const statusJson = ElintPOSNative.getPrinterConnectionStatus();
+                    const status = JSON.parse(statusJson);
+                    
+                    displayPrinters(status);
+                } catch (e) {
+                    console.log('Could not get printer status:', e);
+                    showNoPrinters('Error loading printers: ' + e.message);
+                }
+            } else {
+                showNoPrinters('Native interface not available');
+            }
+        }
+
+        function displayPrinters(status) {
+            const printerList = document.getElementById('printer-list');
+            const printers = [];
+
+            // Get detailed printer names from native interface
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.getConnectedPrinterNames === 'function') {
+                try {
+                    const printerNamesJson = ElintPOSNative.getConnectedPrinterNames();
+                    const printerNames = JSON.parse(printerNamesJson);
+                    
+                    if (printerNames.printers && printerNames.printers.length > 0) {
+                        printerNames.printers.forEach(printer => {
+                            printers.push({
+                                id: printer.type.toLowerCase(),
+                                name: printer.name,
+                                type: printer.type,
+                                connected: printer.connected,
+                                details: printer.type === 'USB' ? 
+                                    `VID: 0x${printer.vendorId.toString(16).toUpperCase()}, PID: 0x${printer.productId.toString(16).toUpperCase()}` :
+                                    printer.type === 'Bluetooth' ? 
+                                    `Address: ${printer.address}` :
+                                    `IP: ${printer.ip}`
+                            });
+                        });
+                    }
+                } catch (e) {
+                    console.log('Could not get detailed printer names:', e);
+                }
+            }
+
+            // Fallback to basic status if detailed names not available
+            if (printers.length === 0) {
+                // Add USB printer
+                if (status.usb && status.usbPrinter) {
+                    printers.push({
+                        id: 'usb',
+                        name: 'USB Printer',
+                        type: 'USB',
+                        connected: status.usb,
+                        details: 'Connected via USB'
+                    });
+                }
+
+                // Add Bluetooth printer
+                if (status.bluetooth && status.btPrinter) {
+                    printers.push({
+                        id: 'bluetooth',
+                        name: 'Bluetooth Printer',
+                        type: 'Bluetooth',
+                        connected: status.bluetooth,
+                        details: 'Connected via Bluetooth'
+                    });
+                }
+
+                // Add LAN printer
+                if (status.lan && status.lanPrinter) {
+                    printers.push({
+                        id: 'lan',
+                        name: 'LAN Printer',
+                        type: 'Network',
+                        connected: status.lan,
+                        details: 'Connected via Network'
+                    });
+                }
+            }
+
+            if (printers.length === 0) {
+                showNoPrinters('No printers connected. Please connect a printer first.');
+                return;
+            }
+
+            printerList.innerHTML = printers.map(printer => `
+                <div class="printer-item ${printer.connected ? '' : 'disabled'}" 
+                     onclick="selectPrinter('${printer.id}', ${printer.connected})">
+                    <div class="printer-name">${printer.name}</div>
+                    <div class="printer-type">${printer.type}</div>
+                    <div class="printer-details">${printer.details}</div>
+                    <div class="printer-status ${printer.connected ? 'status-connected' : 'status-disconnected'}"></div>
+                </div>
+            `).join('');
+        }
+
+        function showNoPrinters(message) {
+            const printerList = document.getElementById('printer-list');
+            printerList.innerHTML = `
+                <div class="no-printers">
+                    <div>🖨️</div>
+                    <div>${message}</div>
+                </div>
+            `;
+        }
+
+        function selectPrinter(printerId, connected) {
+            if (!connected) return;
+
+            // Remove previous selection
+            document.querySelectorAll('.printer-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+
+            // Add selection to clicked item
+            event.currentTarget.classList.add('selected');
+            selectedPrinter = printerId;
+
+            // Enable print button
+            document.getElementById('print-btn').disabled = false;
+        }
+
+        function refreshPrinters() {
+            loadPrinters();
+        }
+
+        function printContent() {
+            if (!selectedPrinter) {
+                alert('Please select a printer first');
+                return;
+            }
+
+            const paperWidth = document.getElementById('paper-width').value;
+            const lineSpacing = document.getElementById('line-spacing').value;
+            const fontSize = document.getElementById('font-size').value;
+
+            // Get the content to print (this would be passed from the parent page)
+            const content = getPrintContent();
+
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    let result;
+                    
+                    switch (selectedPrinter) {
+                        case 'usb':
+                            result = ElintPOSNative.usbPrint(content);
+                            break;
+                        case 'bluetooth':
+                            result = ElintPOSNative.btPrint(content);
+                            break;
+                        case 'lan':
+                            result = ElintPOSNative.lanPrint(content);
+                            break;
+                        default:
+                            result = '{"ok":false,"msg":"Unknown printer type"}';
+                    }
+
+                    const response = JSON.parse(result);
+                    
+                    if (response.ok) {
+                        alert('Print job sent successfully!');
+                        closeSelector();
+                    } else {
+                        alert('Print failed: ' + response.msg);
+                    }
+                } catch (e) {
+                    alert('Print error: ' + e.message);
+                }
+            } else {
+                alert('Native interface not available');
+            }
+        }
+
+        function getPrintContent() {
+            // This function should be overridden by the parent page
+            // to provide the actual content to print
+            return document.getElementById('preview-content').textContent;
+        }
+
+        function closeSelector() {
+            // Close the printer selector
+            if (typeof ElintPOSNative !== 'undefined') {
+                try {
+                    ElintPOSNative.closePrinterSelector();
+                } catch (e) {
+                    // Fallback: just hide the overlay
+                    document.body.style.display = 'none';
+                }
+            } else {
+                document.body.style.display = 'none';
+            }
+        }
+
+        // Function to set print content (called from parent page)
+        function setPrintContent(content) {
+            printContent = content;
+            document.getElementById('preview-content').textContent = content.substring(0, 200) + (content.length > 200 ? '...' : '');
+        }
+
+        // Function to get current print settings
+        function getPrintSettings() {
+            return {
+                paperWidth: parseInt(document.getElementById('paper-width').value),
+                lineSpacing: parseInt(document.getElementById('line-spacing').value),
+                fontSize: parseInt(document.getElementById('font-size').value)
+            };
+        }
+    </script>
+</body>
+</html>

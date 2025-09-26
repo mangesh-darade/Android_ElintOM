@@ -91,9 +91,62 @@
             grid-template-columns: 1fr 1fr;
             gap: 15px;
         }
+        .connection-section {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+        }
+        .connection-section h4 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #495057;
+        }
+        .advanced-section {
+            margin-top: 15px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            border: 1px solid #ced4da;
+        }
+        .advanced-section h4 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #495057;
+        }
+        .advanced-section label {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .advanced-section input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
+        }
+        textarea {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+        .profile-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .profile-actions button {
+            flex: 1;
+            min-width: 120px;
+        }
         @media (max-width: 600px) {
             .grid {
                 grid-template-columns: 1fr;
+            }
+            .profile-actions {
+                flex-direction: column;
+            }
+            .profile-actions button {
+                min-width: auto;
             }
         }
     </style>
@@ -153,15 +206,48 @@
             <button onclick="connectLanPrinter()">Connect LAN Printer</button>
         </div>
 
+        <!-- Printer Profiles Management -->
+        <div class="section">
+            <h3>📋 Printer Profiles</h3>
+            <div class="form-group">
+                <label>Select Profile:</label>
+                <select id="profileSelect" onchange="loadSelectedProfile()">
+                    <option value="">Select a profile...</option>
+                </select>
+            </div>
+            <div class="grid">
+                <button onclick="createNewProfile()">Create New Profile</button>
+                <button onclick="duplicateProfile()">Duplicate Profile</button>
+                <button onclick="deleteProfile()">Delete Profile</button>
+                <button onclick="setAsDefault()">Set as Default</button>
+            </div>
+        </div>
+
         <!-- Print Configuration -->
         <div class="config-section">
             <h3>⚙️ Print Configuration</h3>
             <div class="grid">
                 <div class="form-group">
+                    <label>Profile Name:</label>
+                    <input type="text" id="profileName" placeholder="Enter profile name">
+                </div>
+                <div class="form-group">
+                    <label>Printer Type:</label>
+                    <select id="printerType" onchange="updateConnectionFields()">
+                        <option value="bluetooth">Bluetooth</option>
+                        <option value="usb">USB</option>
+                        <option value="lan">LAN/WiFi</option>
+                        <option value="epson">Epson SDK</option>
+                        <option value="xprinter">XPrinter SDK</option>
+                        <option value="vendor">Vendor SDK</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>Paper Width:</label>
                     <select id="paperWidth">
                         <option value="384">58mm (384 dots)</option>
                         <option value="576" selected>80mm (576 dots)</option>
+                        <option value="832">112mm (832 dots)</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -184,8 +270,101 @@
                     <label>Height Multiplier:</label>
                     <input type="number" id="heightMultiplier" value="0" min="0" max="7">
                 </div>
+                <div class="form-group">
+                    <label>Character Set:</label>
+                    <select id="charset">
+                        <option value="UTF-8" selected>UTF-8</option>
+                        <option value="ASCII">ASCII</option>
+                        <option value="ISO-8859-1">ISO-8859-1</option>
+                        <option value="Windows-1252">Windows-1252</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Connection Timeout (ms):</label>
+                    <input type="number" id="timeout" value="5000" min="1000" max="30000">
+                </div>
             </div>
-            <button onclick="applyPrintConfig()">Apply Configuration</button>
+            
+            <!-- Connection-specific fields -->
+            <div id="connectionFields">
+                <!-- Bluetooth fields -->
+                <div id="btFields" class="connection-section" style="display: none;">
+                    <h4>Bluetooth Settings</h4>
+                    <div class="form-group">
+                        <label>MAC Address:</label>
+                        <input type="text" id="btMacAddress" placeholder="00:11:22:33:44:55">
+                    </div>
+                </div>
+                
+                <!-- USB fields -->
+                <div id="usbFields" class="connection-section" style="display: none;">
+                    <h4>USB Settings</h4>
+                    <div class="form-group">
+                        <label>Device Name:</label>
+                        <input type="text" id="usbDeviceName" placeholder="USB Printer Device">
+                    </div>
+                    <div class="form-group">
+                        <label>Vendor ID:</label>
+                        <input type="text" id="usbVendorId" placeholder="0x04f9">
+                    </div>
+                    <div class="form-group">
+                        <label>Product ID:</label>
+                        <input type="text" id="usbProductId" placeholder="0x2042">
+                    </div>
+                </div>
+                
+                <!-- LAN fields -->
+                <div id="lanFields" class="connection-section" style="display: none;">
+                    <h4>LAN/WiFi Settings</h4>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>IP Address:</label>
+                            <input type="text" id="lanIpAddress" placeholder="192.168.1.100">
+                        </div>
+                        <div class="form-group">
+                            <label>Port:</label>
+                            <input type="number" id="lanPort" value="9100" min="1" max="65535">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- SDK fields -->
+                <div id="sdkFields" class="connection-section" style="display: none;">
+                    <h4>SDK Settings</h4>
+                    <div class="form-group">
+                        <label>SDK Configuration:</label>
+                        <textarea id="sdkConfig" placeholder='{"key": "value"}' rows="3"></textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Advanced Settings -->
+            <div class="advanced-section">
+                <h4>Advanced Settings</h4>
+                <div class="grid">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="autoConnect"> Auto-connect on startup
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="enabled"> Profile enabled
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="setAsDefault"> Set as default for type
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid">
+                <button onclick="saveProfile()">Save Profile</button>
+                <button onclick="applyPrintConfig()">Apply Configuration</button>
+                <button onclick="resetToDefaults()">Reset to Defaults</button>
+            </div>
         </div>
 
         <!-- Test Printing -->
@@ -205,11 +384,17 @@
     </div>
 
     <script>
+        // Global variables
+        let currentProfile = null;
+        let allProfiles = [];
+
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             refreshStatus();
             refreshBluetoothPrinters();
             refreshUsbPrinters();
+            loadAllProfiles();
+            updateConnectionFields();
         });
 
         // Refresh printer status
@@ -456,6 +641,316 @@
             } catch (e) {
                 alert('Error printing invoice: ' + e.message);
             }
+        }
+
+        // Printer Profile Management Functions
+        function loadAllProfiles() {
+            try {
+                const result = JSON.parse(ElintPOSNative.getAllPrinterProfiles());
+                if (result.ok) {
+                    allProfiles = result.profiles;
+                    updateProfileSelect();
+                } else {
+                    console.error('Failed to load profiles:', result.msg);
+                }
+            } catch (e) {
+                console.error('Error loading profiles:', e);
+            }
+        }
+
+        function updateProfileSelect() {
+            const select = document.getElementById('profileSelect');
+            select.innerHTML = '<option value="">Select a profile...</option>';
+            
+            allProfiles.forEach(profile => {
+                const option = document.createElement('option');
+                option.value = profile.id;
+                option.textContent = `${profile.name} (${profile.type})`;
+                if (profile.isDefault) {
+                    option.textContent += ' [DEFAULT]';
+                }
+                select.appendChild(option);
+            });
+        }
+
+        function loadSelectedProfile() {
+            const select = document.getElementById('profileSelect');
+            const profileId = select.value;
+            
+            if (!profileId) {
+                clearProfileForm();
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.getPrinterProfile(profileId));
+                if (result.ok) {
+                    currentProfile = result.profile;
+                    populateProfileForm(result.profile);
+                } else {
+                    alert('Failed to load profile: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error loading profile: ' + e.message);
+            }
+        }
+
+        function populateProfileForm(profile) {
+            document.getElementById('profileName').value = profile.name || '';
+            document.getElementById('printerType').value = profile.type || 'bluetooth';
+            document.getElementById('paperWidth').value = profile.paperWidth || 576;
+            document.getElementById('leftMargin').value = profile.leftMargin || 0;
+            document.getElementById('rightMargin').value = profile.rightMargin || 0;
+            document.getElementById('lineSpacing').value = profile.lineSpacing || 30;
+            document.getElementById('widthMultiplier').value = profile.widthMultiplier || 0;
+            document.getElementById('heightMultiplier').value = profile.heightMultiplier || 0;
+            document.getElementById('charset').value = profile.charset || 'UTF-8';
+            document.getElementById('timeout').value = profile.timeout || 5000;
+            document.getElementById('autoConnect').checked = profile.autoConnect || false;
+            document.getElementById('enabled').checked = profile.enabled !== false;
+            document.getElementById('setAsDefault').checked = profile.isDefault || false;
+            
+            // Populate connection-specific fields
+            if (profile.connectionParams) {
+                if (profile.type === 'bluetooth') {
+                    document.getElementById('btMacAddress').value = profile.connectionParams.mac || '';
+                } else if (profile.type === 'usb') {
+                    document.getElementById('usbDeviceName').value = profile.connectionParams.deviceName || '';
+                    document.getElementById('usbVendorId').value = profile.connectionParams.vendorId || '';
+                    document.getElementById('usbProductId').value = profile.connectionParams.productId || '';
+                } else if (profile.type === 'lan') {
+                    document.getElementById('lanIpAddress').value = profile.connectionParams.ip || '';
+                    document.getElementById('lanPort').value = profile.connectionParams.port || '9100';
+                } else if (['epson', 'xprinter', 'vendor'].includes(profile.type)) {
+                    document.getElementById('sdkConfig').value = JSON.stringify(profile.connectionParams, null, 2);
+                }
+            }
+            
+            updateConnectionFields();
+        }
+
+        function clearProfileForm() {
+            currentProfile = null;
+            document.getElementById('profileName').value = '';
+            document.getElementById('printerType').value = 'bluetooth';
+            document.getElementById('paperWidth').value = '576';
+            document.getElementById('leftMargin').value = '0';
+            document.getElementById('rightMargin').value = '0';
+            document.getElementById('lineSpacing').value = '30';
+            document.getElementById('widthMultiplier').value = '0';
+            document.getElementById('heightMultiplier').value = '0';
+            document.getElementById('charset').value = 'UTF-8';
+            document.getElementById('timeout').value = '5000';
+            document.getElementById('autoConnect').checked = false;
+            document.getElementById('enabled').checked = true;
+            document.getElementById('setAsDefault').checked = false;
+            
+            // Clear connection fields
+            document.getElementById('btMacAddress').value = '';
+            document.getElementById('usbDeviceName').value = '';
+            document.getElementById('usbVendorId').value = '';
+            document.getElementById('usbProductId').value = '';
+            document.getElementById('lanIpAddress').value = '';
+            document.getElementById('lanPort').value = '9100';
+            document.getElementById('sdkConfig').value = '';
+            
+            updateConnectionFields();
+        }
+
+        function updateConnectionFields() {
+            const printerType = document.getElementById('printerType').value;
+            
+            // Hide all connection sections
+            document.getElementById('btFields').style.display = 'none';
+            document.getElementById('usbFields').style.display = 'none';
+            document.getElementById('lanFields').style.display = 'none';
+            document.getElementById('sdkFields').style.display = 'none';
+            
+            // Show relevant section
+            if (printerType === 'bluetooth') {
+                document.getElementById('btFields').style.display = 'block';
+            } else if (printerType === 'usb') {
+                document.getElementById('usbFields').style.display = 'block';
+            } else if (printerType === 'lan') {
+                document.getElementById('lanFields').style.display = 'block';
+            } else if (['epson', 'xprinter', 'vendor'].includes(printerType)) {
+                document.getElementById('sdkFields').style.display = 'block';
+            }
+        }
+
+        function createNewProfile() {
+            clearProfileForm();
+            document.getElementById('profileName').focus();
+        }
+
+        function duplicateProfile() {
+            if (!currentProfile) {
+                alert('Please select a profile to duplicate');
+                return;
+            }
+            
+            const newName = prompt('Enter name for duplicated profile:', currentProfile.name + ' Copy');
+            if (!newName) return;
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.duplicatePrinterProfile(currentProfile.id, newName));
+                if (result.ok) {
+                    alert('Profile duplicated successfully!');
+                    loadAllProfiles();
+                } else {
+                    alert('Failed to duplicate profile: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error duplicating profile: ' + e.message);
+            }
+        }
+
+        function deleteProfile() {
+            if (!currentProfile) {
+                alert('Please select a profile to delete');
+                return;
+            }
+            
+            if (currentProfile.isDefault) {
+                alert('Cannot delete default profile');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete profile "${currentProfile.name}"?`)) {
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.deletePrinterProfile(currentProfile.id));
+                if (result.ok) {
+                    alert('Profile deleted successfully!');
+                    clearProfileForm();
+                    loadAllProfiles();
+                } else {
+                    alert('Failed to delete profile: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error deleting profile: ' + e.message);
+            }
+        }
+
+        function setAsDefault() {
+            if (!currentProfile) {
+                alert('Please select a profile to set as default');
+                return;
+            }
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.setPrinterProfileAsDefault(currentProfile.id));
+                if (result.ok) {
+                    alert('Profile set as default successfully!');
+                    loadAllProfiles();
+                } else {
+                    alert('Failed to set profile as default: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error setting profile as default: ' + e.message);
+            }
+        }
+
+        function saveProfile() {
+            const profileName = document.getElementById('profileName').value.trim();
+            if (!profileName) {
+                alert('Please enter a profile name');
+                return;
+            }
+            
+            const printerType = document.getElementById('printerType').value;
+            const connectionParams = getConnectionParams(printerType);
+            
+            const profile = {
+                id: currentProfile ? currentProfile.id : null,
+                name: profileName,
+                type: printerType,
+                enabled: document.getElementById('enabled').checked,
+                paperWidth: parseInt(document.getElementById('paperWidth').value),
+                leftMargin: parseInt(document.getElementById('leftMargin').value),
+                rightMargin: parseInt(document.getElementById('rightMargin').value),
+                lineSpacing: parseInt(document.getElementById('lineSpacing').value),
+                widthMultiplier: parseInt(document.getElementById('widthMultiplier').value),
+                heightMultiplier: parseInt(document.getElementById('heightMultiplier').value),
+                charset: document.getElementById('charset').value,
+                autoConnect: document.getElementById('autoConnect').checked,
+                timeout: parseInt(document.getElementById('timeout').value),
+                connectionParams: connectionParams,
+                isDefault: document.getElementById('setAsDefault').checked
+            };
+            
+            try {
+                const result = JSON.parse(ElintPOSNative.savePrinterProfile(JSON.stringify(profile)));
+                if (result.ok) {
+                    alert('Profile saved successfully!');
+                    loadAllProfiles();
+                    if (result.profile) {
+                        currentProfile = result.profile;
+                        // Update the select to show the saved profile
+                        document.getElementById('profileSelect').value = result.profile.id;
+                    }
+                } else {
+                    alert('Failed to save profile: ' + result.msg);
+                }
+            } catch (e) {
+                alert('Error saving profile: ' + e.message);
+            }
+        }
+
+        function getConnectionParams(printerType) {
+            const params = {};
+            
+            if (printerType === 'bluetooth') {
+                const mac = document.getElementById('btMacAddress').value.trim();
+                if (mac) params.mac = mac;
+            } else if (printerType === 'usb') {
+                const deviceName = document.getElementById('usbDeviceName').value.trim();
+                const vendorId = document.getElementById('usbVendorId').value.trim();
+                const productId = document.getElementById('usbProductId').value.trim();
+                if (deviceName) params.deviceName = deviceName;
+                if (vendorId) params.vendorId = vendorId;
+                if (productId) params.productId = productId;
+            } else if (printerType === 'lan') {
+                const ip = document.getElementById('lanIpAddress').value.trim();
+                const port = document.getElementById('lanPort').value.trim();
+                if (ip) params.ip = ip;
+                if (port) params.port = port;
+            } else if (['epson', 'xprinter', 'vendor'].includes(printerType)) {
+                const config = document.getElementById('sdkConfig').value.trim();
+                if (config) {
+                    try {
+                        Object.assign(params, JSON.parse(config));
+                    } catch (e) {
+                        console.warn('Invalid SDK configuration JSON:', e);
+                    }
+                }
+            }
+            
+            return params;
+        }
+
+        function resetToDefaults() {
+            if (!confirm('Reset all settings to defaults? This will clear the current form.')) {
+                return;
+            }
+            
+            clearProfileForm();
+            document.getElementById('printerType').value = 'bluetooth';
+            document.getElementById('paperWidth').value = '576';
+            document.getElementById('leftMargin').value = '0';
+            document.getElementById('rightMargin').value = '0';
+            document.getElementById('lineSpacing').value = '30';
+            document.getElementById('widthMultiplier').value = '0';
+            document.getElementById('heightMultiplier').value = '0';
+            document.getElementById('charset').value = 'UTF-8';
+            document.getElementById('timeout').value = '5000';
+            document.getElementById('autoConnect').checked = false;
+            document.getElementById('enabled').checked = true;
+            document.getElementById('setAsDefault').checked = false;
+            
+            updateConnectionFields();
         }
     </script>
 </body>
