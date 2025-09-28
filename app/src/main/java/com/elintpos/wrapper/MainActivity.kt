@@ -232,6 +232,52 @@ class MainActivity : ComponentActivity() {
 
 		webView.addJavascriptInterface(object {
 			@android.webkit.JavascriptInterface
+			fun debugLog(message: String) {
+				android.util.Log.d("ElintPOS_JS", message)
+				Toast.makeText(this@MainActivity, "JS Debug: $message", Toast.LENGTH_SHORT).show()
+			}
+
+			@android.webkit.JavascriptInterface
+			fun checkInterfaceAvailable(): String {
+				return "{\"ok\":true,\"message\":\"ElintPOSNative interface is available\",\"timestamp\":${System.currentTimeMillis()}}"
+			}
+
+			@android.webkit.JavascriptInterface
+			fun testPrintFunction(): String {
+				android.util.Log.d("ElintPOS_JS", "testPrintFunction called")
+				Toast.makeText(this@MainActivity, "Test print function called", Toast.LENGTH_SHORT).show()
+				return "{\"ok\":true,\"message\":\"Test print function working\"}"
+			}
+
+			@android.webkit.JavascriptInterface
+			fun debugPageInfo(): String {
+				android.util.Log.d("ElintPOS_JS", "debugPageInfo called")
+				val currentUrl = webView.url ?: "unknown"
+				val userAgent = webView.settings.userAgentString ?: "unknown"
+				return "{\"ok\":true,\"url\":\"$currentUrl\",\"userAgent\":\"$userAgent\",\"timestamp\":${System.currentTimeMillis()}}"
+			}
+
+			@android.webkit.JavascriptInterface
+			fun forceInterfaceReconnect(): String {
+				android.util.Log.d("ElintPOS_JS", "forceInterfaceReconnect called")
+				// Re-inject the JavaScript interface
+				runOnUiThread {
+					webView.evaluateJavascript("""
+						console.log('=== Force Interface Reconnect ===');
+						console.log('Current URL:', window.location.href);
+						console.log('ElintPOSNative before:', typeof window.ElintPOSNative !== 'undefined');
+						
+						// Force a page refresh to re-inject the interface
+						setTimeout(function() {
+							console.log('Refreshing page to reconnect interface...');
+							window.location.reload();
+						}, 100);
+					""", null)
+				}
+				return "{\"ok\":true,\"message\":\"Interface reconnect initiated\"}"
+			}
+
+			@android.webkit.JavascriptInterface
 			fun vendorAvailable(): Boolean {
 				return try { vendorPrinter.isAvailable() } catch (_: Exception) { false }
 			}
@@ -631,6 +677,8 @@ class MainActivity : ComponentActivity() {
 
 			@android.webkit.JavascriptInterface
 			fun printFromWeb(text: String, prefer: String): String {
+				android.util.Log.d("ElintPOS_JS", "printFromWeb called with text length: ${text.length}, prefer: $prefer")
+				Toast.makeText(this@MainActivity, "Print request received: $prefer", Toast.LENGTH_SHORT).show()
 				return try {
 					val target = prefer.lowercase()
 					if (target == "bt" && isBtConnected) {
@@ -650,6 +698,7 @@ class MainActivity : ComponentActivity() {
 					}
 					"{\"ok\":true}"
 				} catch (e: Exception) {
+					android.util.Log.e("ElintPOS_JS", "Print error: ${e.message}", e)
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
 			}
@@ -2568,55 +2617,53 @@ class MainActivity : ComponentActivity() {
 		view.overScrollMode = WebView.OVER_SCROLL_NEVER
 
 		view.webViewClient = object : WebViewClient() {
-			override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-				if (request == null) return false
-				val uri = request.url
-
-				// If the URL looks like a receipt view, open it in dedicated ReceiptActivity
-				try {
-					val path = uri.encodedPath ?: ""
-					// Block accidental logout redirects that can occur around print flows
-					if (path.contains("/auth/logout") || path.endsWith("/logout")) {
-						Toast.makeText(this@MainActivity, "Blocked logout redirect", Toast.LENGTH_SHORT).show()
-						return true
-					}
-					if (path.contains("/pos/view/") || path.contains("/sales/view/")) {
-						val intent = Intent(this@MainActivity, com.elintpos.wrapper.viewer.ReceiptActivity::class.java)
-						intent.putExtra(com.elintpos.wrapper.viewer.ReceiptActivity.EXTRA_URL, uri.toString())
-						startActivity(intent)
-						return true
-					}
-				} catch (_: Exception) {}
-
-				val scheme = uri.scheme ?: return false
-				when (scheme) {
-					"tel", "mailto", "upi" -> {
-						openExternalIntent(Intent(Intent.ACTION_VIEW, uri))
-						return true
-					}
-					"intent" -> {
-						try {
-							val intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
-							startActivity(intent)
-						} catch (e: Exception) {
-							Toast.makeText(this@MainActivity, "No app to handle intent", Toast.LENGTH_SHORT).show()
-						}
-						return true
-					}
-				}
-
-				// Stay within WebView for our domain; otherwise let OS handle http/https externals
-				val host = uri.host ?: return false
-				return if (host.endsWith(BASE_DOMAIN)) {
-					false
-				} else {
-					openExternalIntent(Intent(Intent.ACTION_VIEW, uri))
-					true
-				}
-			}
-
 			override fun onPageFinished(view: WebView?, url: String?) {
 				super.onPageFinished(view, url)
+				
+				android.util.Log.d("ElintPOS_WebView", "Page finished loading: $url")
+				
+				// Ensure JavaScript interface is available on all pages
+				view?.evaluateJavascript("""
+					console.log('=== ElintPOS Interface Check ===');
+					console.log('Current URL:', window.location.href);
+					console.log('ElintPOSNative available:', typeof window.ElintPOSNative !== 'undefined');
+					
+					if (typeof window.ElintPOSNative === 'undefined') {
+						console.error('❌ ElintPOSNative interface NOT available on this page');
+						console.log('Attempting to reconnect...');
+						
+						// Try to access the interface after a short delay
+						setTimeout(function() {
+							if (typeof window.ElintPOSNative !== 'undefined') {
+								console.log('✅ ElintPOSNative interface is now available');
+								// Test the interface
+								try {
+									const testResult = window.ElintPOSNative.checkInterfaceAvailable();
+									console.log('Interface test result:', testResult);
+								} catch (e) {
+									console.error('Interface test failed:', e);
+								}
+							} else {
+								console.error('❌ ElintPOSNative interface still not available after retry');
+								// Show user-friendly message
+								if (window.alert) {
+									window.alert('Print functionality not available on this page. Please refresh or go back to the main page.');
+								}
+							}
+						}, 200);
+					} else {
+						console.log('✅ ElintPOSNative interface is available');
+						// Test the interface to make sure it's working
+						try {
+							const testResult = window.ElintPOSNative.checkInterfaceAvailable();
+							console.log('Interface test result:', testResult);
+						} catch (e) {
+							console.error('Interface test failed:', e);
+						}
+					}
+					console.log('=== End Interface Check ===');
+				""", null)
+				
 				// Inject a window.print override that sends the page text to native printing
 				val js = """
 					(function(){
@@ -2650,70 +2697,80 @@ class MainActivity : ComponentActivity() {
 								},
 								status: function(){ return ElintPOSNative.getPrinterStatus(); }
 							};
-							var origPrint = window.print;
-                            window.print = function(){ try{ if(!__elintposSmartPrint(String(document.body.innerText||''), 'auto')){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('No printer connected'); } }catch(_){ } } }catch(e){ if(origPrint) origPrint(); } };
+							// window.print override removed - manual print only
+							// Use ElintPOSNative.printFromWeb() for manual printing
 							// Force target=_blank links and window.open to stay in same WebView
 							try{ window.open = function(u){ try{ location.href = u; }catch(e){} return null; }; }catch(_){ }
 							try{
 								var bl = document.querySelectorAll('a[target="_blank"]');
 								for(var i=0;i<bl.length;i++){ bl[i].setAttribute('target','_self'); }
 							}catch(_){ }
-							// Bind common POS action buttons to Android system print
-							var selectors = ['.cmdprint', '.cmdprint1', '.splitcheck', '.btn-print', '#btnPrint'];
-							selectors.forEach(function(sel){
-								var els = document.querySelectorAll(sel);
-								for(var i=0;i<els.length;i++){
-									els[i].addEventListener('click', function(ev){
-										try{ ElintPOS.printSelector('#paymentModal .modal-content'); }catch(e){ try{ ElintPOSNative.systemPrint('POS Print'); }catch(_){} }
-									}, true);
-								}
-							});
-
-							// Also catch generic buttons with visible text like "Print", "Submit & Print"
-							function attachByText(root){
-								try{
-									var candidates = root.querySelectorAll('button, input[type="button"], input[type="submit"], a.btn, .btn');
-									for(var i=0;i<candidates.length;i++){
-										var el = candidates[i];
-										if(el.__elintposBound) continue;
-										var txt = (el.innerText||el.value||'').trim().toLowerCase();
-										if(!txt) continue;
-										if(txt === 'print' || txt.indexOf('submit & print') >= 0 || txt.indexOf('submit and print') >= 0 || txt.indexOf('print bill') >= 0 || txt.indexOf('print receipt') >= 0){
-											el.__elintposBound = true;
-											el.addEventListener('click', function(){ try{ ElintPOSNative.systemPrint('POS Print'); }catch(_){ try{ window.print(); }catch(__){} } }, true);
-										}
-									}
-								}catch(_){ }
-							}
-							attachByText(document);
-							// Observe future DOM changes (pages that inject buttons after submit)
-							try{
-								var mo = new MutationObserver(function(muts){ for(var j=0;j<muts.length;j++){ if(muts[j].addedNodes){ for(var k=0;k<muts[j].addedNodes.length;k++){ var n=muts[j].addedNodes[k]; if(n && n.querySelectorAll) attachByText(n); } } } });
-								mo.observe(document.documentElement, {childList:true, subtree:true});
-							}catch(_){ }
+							// Auto-binding of print buttons removed - manual print only
+							// Print functionality is available through ElintPOSNative interface
 						}catch(e){}
 					})();
 				"""
 				view?.evaluateJavascript(js, null)
-				// If this looks like a receipt view or blank print page, trigger a safe print after render
-				if (url != null && (url == "about:blank" || url.indexOf("/pos/view/") >= 0 || url.indexOf("/sales/view/") >= 0)) {
-					view?.postDelayed({
-						try {
-							view.evaluateJavascript(
-								"(function(){try{ElintPOS.printSelector('#paymentModal .modal-content');}catch(e){try{window.print();}catch(_){}}})();",
-								null
-							)
-						} catch (_: Exception) {
-							try {
-								runOnUiThread {
-									val pm = getSystemService(Context.PRINT_SERVICE) as PrintManager
-									pm.print("Receipt", webView.createPrintDocumentAdapter("Receipt"), PrintAttributes.Builder().build())
+				// Auto-print functionality removed - manual print only
+			}
+
+			override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+				if (request == null) return false
+				val uri = request.url
+
+				// Handle pos/view navigation - keep in same WebView to maintain interface
+				try {
+					val path = uri.encodedPath ?: ""
+					// Block accidental logout redirects that can occur around print flows
+					if (path.contains("/auth/logout") || path.endsWith("/logout")) {
+						Toast.makeText(this@MainActivity, "Blocked logout redirect", Toast.LENGTH_SHORT).show()
+						return true
+					}
+					// For pos/view pages, load in same WebView to maintain JavaScript interface
+					if (path.contains("/pos/view/") || path.contains("/sales/view/")) {
+						android.util.Log.d("ElintPOS_WebView", "Loading pos/view page: $uri")
+						// Load in same WebView and ensure JavaScript interface is available
+						view?.loadUrl(uri.toString())
+						// Re-inject JavaScript interface after page load
+						view?.postDelayed({
+							view?.evaluateJavascript("""
+								if (typeof window.ElintPOSNative === 'undefined') {
+									console.log('Re-injecting ElintPOSNative interface for pos/view page');
+									// Interface will be available after page load
 								}
-							} catch (_: Exception) {}
+							""", null)
+						}, 500)
+						return true
+					}
+				} catch (_: Exception) {}
+
+				val scheme = uri.scheme ?: return false
+				when (scheme) {
+					"tel", "mailto", "upi" -> {
+						openExternalIntent(Intent(Intent.ACTION_VIEW, uri))
+						return true
+					}
+					"intent" -> {
+						try {
+							val intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
+							startActivity(intent)
+						} catch (e: Exception) {
+							Toast.makeText(this@MainActivity, "No app to handle intent", Toast.LENGTH_SHORT).show()
 						}
-					}, 400)
+						return true
+					}
+				}
+
+				// Stay within WebView for our domain; otherwise let OS handle http/https externals
+				val host = uri.host ?: return false
+				return if (host.endsWith(BASE_DOMAIN)) {
+					false
+				} else {
+					openExternalIntent(Intent(Intent.ACTION_VIEW, uri))
+					true
 				}
 			}
+
 
 			override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
 				// Avoid app crash on misconfigured certs while viewing receipts. Prefer proceed; fix server SSL in production.
