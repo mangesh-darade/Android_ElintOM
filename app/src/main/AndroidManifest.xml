@@ -67,13 +67,13 @@
 			android:theme="@style/Theme.ElintPOS"
 			android:resizeableActivity="false">
 
-			<!-- Deep links for devmeenatshi.elintpos.in -->
+			<!-- Deep links for 1602clothingdev.elintpos.in -->
 			<intent-filter android:autoVerify="true">
 				<action android:name="android.intent.action.VIEW" />
 				<category android:name="android.intent.category.DEFAULT" />
 				<category android:name="android.intent.category.BROWSABLE" />
-				<data android:scheme="http" android:host="devmeenatshi.elintpos.in" />
-				<data android:scheme="https" android:host="devmeenatshi.elintpos.in" />
+				<data android:scheme="http" android:host="1602clothingdev.elintpos.in" />
+				<data android:scheme="https" android:host="1602clothingdev.elintpos.in" />
 			</intent-filter>
 
 			<!-- Launch/bring app to front when a matching USB printer is attached -->

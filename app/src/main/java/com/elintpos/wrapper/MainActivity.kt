@@ -60,6 +60,8 @@ import com.elintpos.wrapper.escpos.LanEscPosPrinter
 import com.elintpos.wrapper.escpos.ReceiptFormatter
 import com.elintpos.wrapper.pdf.PdfDownloader
 import com.elintpos.wrapper.export.CsvExporter
+import com.elintpos.wrapper.viewer.ReceiptActivity
+import com.elintpos.wrapper.R
 import com.elintpos.wrapper.printer.vendor.VendorPrinter
 import com.elintpos.wrapper.printer.vendor.EpsonPrinter
 import com.elintpos.wrapper.printer.vendor.XPrinter
@@ -70,20 +72,60 @@ import android.content.SharedPreferences
 import android.app.ActivityManager
 import android.app.ActivityManager.RunningAppProcessInfo
 import android.app.KeyguardManager
+import androidx.appcompat.app.AlertDialog
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import kotlinx.coroutines.*
+import java.net.URI
 
 class MainActivity : ComponentActivity() {
 
 	companion object {
 		// Replace YOUR_DOMAIN_HERE with your actual domain (no scheme). Example: "pos.example.com"
-		private const val BASE_DOMAIN = "devmeenatshi.elintpos.in"
+		private const val BASE_DOMAIN = "1602clothingdev.elintpos.in"
 		private const val BASE_URL = "http://$BASE_DOMAIN/"
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"
 		private const val TAG = "ElintPOS"
 		private const val ACTION_USB_PERMISSION = "com.elintpos.wrapper.USB_PERMISSION"
 	}
+
+    /**
+     * Build an absolute URL from a possibly relative input.
+     * Rules:
+     * - If input already has a scheme (http/https/file/data/blob, etc.), return as-is.
+     * - If input starts with "//", prepend scheme from current page or BASE_URL (default http).
+     * - Otherwise resolve relative to the current WebView URL if available, else BASE_URL.
+     */
+    private fun buildAbsoluteUrl(input: String): String {
+        val url = input.trim()
+        if (url.isEmpty()) return url
+
+        // Already absolute (has scheme)
+        if (url.contains("://")) return url
+
+        // Scheme-relative URL
+        if (url.startsWith("//")) {
+            val scheme = try {
+                Uri.parse(webView.url ?: BASE_URL).scheme ?: "http"
+            } catch (_: Exception) { "http" }
+            return "$scheme:$url"
+        }
+
+        // Resolve against current page or BASE_URL
+        val base = try {
+            val current = webView.url ?: BASE_URL
+            val baseUri = URI(current)
+            // Ensure base has at least scheme and authority
+            if (baseUri.scheme == null || baseUri.host == null) URI(BASE_URL) else baseUri
+        } catch (_: Exception) { URI(BASE_URL) }
+
+        return try {
+            base.resolve(url).toString()
+        } catch (_: Exception) {
+            // Fallback simple concatenation
+            (BASE_URL.trimEnd('/') + "/" + url.trimStart('/'))
+        }
+    }
 
 	private lateinit var webView: WebView
 
@@ -151,6 +193,7 @@ class MainActivity : ComponentActivity() {
 							Toast.makeText(this@MainActivity, "USB permission granted. Printer connected", Toast.LENGTH_SHORT).show()
 							try { pendingUsbAfterConnect?.invoke() } catch (_: Exception) {} finally { pendingUsbAfterConnect = null }
 						}
+
 					} catch (e: Exception) {
 						isUsbConnected = false
 						Toast.makeText(this@MainActivity, "USB connect failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -275,6 +318,60 @@ class MainActivity : ComponentActivity() {
 					""", null)
 				}
 				return "{\"ok\":true,\"message\":\"Interface reconnect initiated\"}"
+			}
+
+			// Open native receipt viewer for a specific URL (e.g., printable receipt page)
+			@android.webkit.JavascriptInterface
+			fun openReceiptUrl(url: String?): String {
+				return try {
+					if (url == null || url.isBlank()) return "{\"ok\":false,\"msg\":\"Empty URL\"}"
+					runOnUiThread {
+						val i = Intent(this@MainActivity, ReceiptActivity::class.java)
+						i.putExtra(ReceiptActivity.EXTRA_URL, url)
+						startActivity(i)
+					}
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			// Open native receipt viewer for a specific orderId
+			@android.webkit.JavascriptInterface
+			fun openReceiptForOrder(orderId: String?): String {
+				return try {
+					if (orderId == null || orderId.isBlank()) return "{\"ok\":false,\"msg\":\"Empty orderId\"}"
+					runOnUiThread {
+						val i = Intent(this@MainActivity, ReceiptActivity::class.java)
+						i.putExtra(ReceiptActivity.EXTRA_ORDER_ID, orderId)
+						startActivity(i)
+					}
+					"{\"ok\":true}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			// Open receipt in a dialog (WebView inside AlertDialog) using a full or relative URL
+			@android.webkit.JavascriptInterface
+			fun openReceiptDialogUrl(url: String?): String {
+				return try {
+					if (url == null || url.isBlank()) return "{\"ok\":false,\"msg\":\"Empty URL\"}"
+					val finalUrl = buildAbsoluteUrl(url)
+					runOnUiThread { showReceiptDialog(finalUrl) }
+					"{\"ok\":true}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
+			}
+		
+			// Open receipt in a dialog for a given orderId (adjust path if your backend differs)
+			@android.webkit.JavascriptInterface
+			fun openReceiptDialogForOrder(orderId: String?): String {
+				return try {
+					if (orderId == null || orderId.isBlank()) return "{\"ok\":false,\"msg\":\"Empty orderId\"}"
+					val guess = BASE_URL + "pos/receipt/" + orderId + "?print=1"
+					runOnUiThread { showReceiptDialog(guess) }
+					"{\"ok\":true}"
+				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
 			}
 
 			@android.webkit.JavascriptInterface
@@ -2697,16 +2794,25 @@ class MainActivity : ComponentActivity() {
 								},
 								status: function(){ return ElintPOSNative.getPrinterStatus(); }
 							};
-							// window.print override removed - manual print only
-							// Use ElintPOSNative.printFromWeb() for manual printing
+							// Override window.print to open Android system print dialog only when user clicks Print
+							try {
+								window.print = function(){
+									try {
+										if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.systemPrint) {
+											ElintPOSNative.systemPrint('POS Print');
+											return true;
+										}
+									} catch(_) {}
+									return false;
+								};
+							} catch(_) {}
 							// Force target=_blank links and window.open to stay in same WebView
 							try{ window.open = function(u){ try{ location.href = u; }catch(e){} return null; }; }catch(_){ }
 							try{
 								var bl = document.querySelectorAll('a[target="_blank"]');
 								for(var i=0;i<bl.length;i++){ bl[i].setAttribute('target','_self'); }
 							}catch(_){ }
-							// Auto-binding of print buttons removed - manual print only
-							// Print functionality is available through ElintPOSNative interface
+							// Auto-binding removed; printing now occurs only via window.print() or ElintPOS APIs
 						}catch(e){}
 					})();
 				"""
@@ -2859,13 +2965,6 @@ class MainActivity : ComponentActivity() {
 				val transport = resultMsg?.obj as? WebView.WebViewTransport
 				transport?.webView = this@MainActivity.webView
 				resultMsg?.sendToTarget()
-				// Fallback: some web apps open a blank window then call print(). Trigger print dialog to mimic browser behavior.
-				this@MainActivity.webView.postDelayed({
-					try {
-						val pm = getSystemService(Context.PRINT_SERVICE) as PrintManager
-						pm.print("POS Print", webView.createPrintDocumentAdapter("POS Print"), PrintAttributes.Builder().build())
-					} catch (_: Exception) {}
-				}, 500)
 				return true
 			}
 			override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
@@ -3193,5 +3292,48 @@ class MainActivity : ComponentActivity() {
 		lanPrinter?.close()
 		printerTester.cleanup()
 		super.onDestroy()
+	}
+	// Show receipt preview in a modal dialog with a WebView
+	@android.annotation.SuppressLint("SetJavaScriptEnabled")
+	private fun showReceiptDialog(url: String) {
+		try {
+			val view = layoutInflater.inflate(R.layout.dialog_receipt, null)
+			val web = view.findViewById<android.webkit.WebView>(R.id.receiptWebView)
+			val close = view.findViewById<android.widget.ImageButton>(R.id.closeBtn)
+			val progress = view.findViewById<android.widget.ProgressBar>(R.id.progressBar)
+			android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+			android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+
+			with(web.settings) {
+				javaScriptEnabled = true
+				domStorageEnabled = true
+				databaseEnabled = true
+				useWideViewPort = true
+				loadWithOverviewMode = true
+				builtInZoomControls = true
+				displayZoomControls = false
+				mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+			}
+
+			val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+				.setView(view)
+				.setCancelable(true)
+				.create()
+
+			close.setOnClickListener { dialog.dismiss() }
+
+			web.webViewClient = object : android.webkit.WebViewClient() {
+				override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+					super.onPageFinished(view, url)
+					progress.visibility = android.view.View.GONE
+				}
+			}
+
+			progress.visibility = android.view.View.VISIBLE
+			dialog.show()
+			web.loadUrl(url)
+		} catch (e: Exception) {
+			android.widget.Toast.makeText(this, "Failed to open receipt: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+		}
 	}
 }
