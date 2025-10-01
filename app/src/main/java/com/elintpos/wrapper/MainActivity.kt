@@ -1,4 +1,4 @@
-package com.elintpos.wrapper
+﻿package com.elintpos.wrapper
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
@@ -2252,6 +2252,7 @@ class MainActivity : ComponentActivity() {
 
 	private fun createSettingsButton(): android.widget.ImageButton {
 		val settingsButton = android.widget.ImageButton(this)
+		settingsButton.visibility = android.view.View.GONE
 		val layoutParams = android.widget.RelativeLayout.LayoutParams(
 			android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
 			android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
