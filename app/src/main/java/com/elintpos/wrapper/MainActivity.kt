@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
 
 	companion object {
 		// Replace YOUR_DOMAIN_HERE with your actual domain (no scheme). Example: "pos.example.com"
-		private const val BASE_DOMAIN = "1602clothingdev.elintpos.in"
+		private const val BASE_DOMAIN = "1602clothingqa.elintpos.in"
 		private const val BASE_URL = "http://$BASE_DOMAIN/"
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"
 		private const val TAG = "ElintPOS"
@@ -2818,6 +2818,56 @@ class MainActivity : ComponentActivity() {
 					})();
 				"""
 				view?.evaluateJavascript(js, null)
+				// Suspended Sales pagination handling and modal fallback
+				view?.evaluateJavascript("""
+					(function(){
+						try{
+							if (window.__elintposSuspendHooked) return;
+							window.__elintposSuspendHooked = true;
+
+							function isSuspendedSalesContext(){
+								var h = document.querySelector('h1,h2,h3');
+								var t = ((h && h.textContent) || '').toLowerCase();
+								var bodyText = ((document.body && document.body.innerText) || '').toLowerCase();
+								return t.indexOf('suspended sales')>=0 || bodyText.indexOf('suspended sales')>=0;
+							}
+
+							function ensureSuspendedModal(){
+								if (!isSuspendedSalesContext()) return;
+								if (document.querySelector('.modal, .__el_modal')) return; // already modal-like
+								var content = document.body.innerHTML;
+								var style = document.createElement('style');
+								style.textContent = '\n.__el_modal_backdrop{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.45);z-index:9998;}\n.__el_modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:80vw;max-width:860px;max-height:80vh;overflow:auto;background:#ffffff;border-radius:6px;box-shadow:0 10px 28px rgba(0,0,0,.24);z-index:9999;padding:18px;}\n.__el_modal h1,.__el_modal h2,.__el_modal h3{margin-top:0;}\n.__el_modal_body .panel,.__el_modal_body .well{background:#6BD1EB;color:#003447;border-radius:4px;padding:12px;}\n.__el_pager{display:flex;gap:6px;justify-content:center;margin:12px 0;}\n';
+								try{ document.head.appendChild(style); }catch(_){ }
+								document.body.innerHTML = '<div class="__el_modal_backdrop"></div><div class="__el_modal"><div class="__el_modal_body">'+content+'</div></div>';
+							}
+
+							function handleSuspendedPagination(e){
+								var a = e.target && e.target.closest ? e.target.closest('a') : null;
+								if(!a) return;
+								var href = a.getAttribute('href')||'';
+								if(!href) return;
+								if(!(isSuspendedSalesContext() || /suspend|suspended/i.test(href))) return;
+								if(!(/page=\d+/.test(href) || /\b(last|first|next|prev)/i.test(a.textContent||''))) return;
+								e.preventDefault();
+								var body = document.querySelector('.modal-body, .__el_modal_body') || document.body;
+								try{
+									fetch(href, { headers: { 'X-Requested-With':'XMLHttpRequest' } })
+										.then(function(r){ return r.text(); })
+										.then(function(html){
+											body.innerHTML = html;
+											ensureSuspendedModal();
+										});
+								}catch(_){
+									location.href = href;
+								}
+							}
+
+							document.addEventListener('click', handleSuspendedPagination, true);
+							ensureSuspendedModal();
+						}catch(e){}
+					})();
+				""", null)
 				// Auto-print functionality removed - manual print only
 			}
 
