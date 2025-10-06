@@ -72,8 +72,10 @@
 				<action android:name="android.intent.action.VIEW" />
 				<category android:name="android.intent.category.DEFAULT" />
 				<category android:name="android.intent.category.BROWSABLE" />
-				<data android:scheme="http" android:host="1602clothingqa.elintpos.in" />
-				<data android:scheme="https" android:host="1602clothingqa.elintpos.in" />
+
+				<data android:scheme="http" android:host="androidtesting.elintpos.in" />
+				<data android:scheme="https" android:host="androidtesting.elintpos.in" />
+
 			</intent-filter>
 
 			<!-- Launch/bring app to front when a matching USB printer is attached -->

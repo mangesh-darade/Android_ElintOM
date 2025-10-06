@@ -82,8 +82,10 @@ class MainActivity : ComponentActivity() {
 
 	companion object {
 		// Replace YOUR_DOMAIN_HERE with your actual domain (no scheme). Example: "pos.example.com"
-		private const val BASE_DOMAIN = "1602clothingqa.elintpos.in"
-		private const val BASE_URL = "http://$BASE_DOMAIN/"
+
+		private const val BASE_DOMAIN = "androidtesting.elintpos.in"
+		private const val BASE_URL = "https://$BASE_DOMAIN/"
+
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"
 		private const val TAG = "ElintPOS"
 		private const val ACTION_USB_PERMISSION = "com.elintpos.wrapper.USB_PERMISSION"
@@ -1029,6 +1031,95 @@ class MainActivity : ComponentActivity() {
 					webView.loadUrl("file:///android_asset/settings_demo.html")
 					"{\"ok\":true}"
 				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			/**
+			 * Proper logout function - clears session and redirects to logout
+			 * This bypasses the logout redirect blocking for intentional logouts
+			 * Returns: {"ok": true} or {"ok": false, "msg": "error message"}
+			 */
+			@android.webkit.JavascriptInterface
+			fun logout(): String {
+				return try {
+					runOnUiThread {
+						// Clear WebView data and cookies
+						webView.clearCache(true)
+						webView.clearHistory()
+						webView.clearFormData()
+						
+						// Clear cookies
+						val cookieManager = CookieManager.getInstance()
+						cookieManager.removeAllCookies(null)
+						cookieManager.flush()
+						
+						// Navigate to logout URL with intentional parameter
+						webView.loadUrl("$BASE_URL/auth/logout?intentional=true")
+						
+						Toast.makeText(this@MainActivity, "Logged out successfully", Toast.LENGTH_SHORT).show()
+					}
+					"{\"ok\":true,\"message\":\"Logout initiated\"}"
+				} catch (e: Exception) {
+					android.util.Log.e("ElintPOS", "Error during logout", e)
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			/**
+			 * Clear session data without redirecting
+			 * Useful for clearing user data while staying on current page
+			 * Returns: {"ok": true} or {"ok": false, "msg": "error message"}
+			 */
+			@android.webkit.JavascriptInterface
+			fun clearSession(): String {
+				return try {
+					runOnUiThread {
+						// Clear WebView data
+						webView.clearCache(true)
+						webView.clearFormData()
+						
+						// Clear cookies
+						val cookieManager = CookieManager.getInstance()
+						cookieManager.removeAllCookies(null)
+						cookieManager.flush()
+						
+						Toast.makeText(this@MainActivity, "Session cleared", Toast.LENGTH_SHORT).show()
+					}
+					"{\"ok\":true,\"message\":\"Session cleared\"}"
+				} catch (e: Exception) {
+					android.util.Log.e("ElintPOS", "Error clearing session", e)
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			/**
+			 * Allow logout redirect from web interface
+			 * This enables logout from any web-based logout button/link
+			 * Returns: {"ok": true} or {"ok": false, "msg": "error message"}
+			 */
+			@android.webkit.JavascriptInterface
+			fun allowLogoutRedirect(logoutUrl: String): String {
+				return try {
+					runOnUiThread {
+						android.util.Log.d("ElintPOS", "Allowing logout redirect to: $logoutUrl")
+						
+						// Clear session data first
+						webView.clearCache(true)
+						webView.clearFormData()
+						
+						val cookieManager = CookieManager.getInstance()
+						cookieManager.removeAllCookies(null)
+						cookieManager.flush()
+						
+						// Navigate to logout URL
+						webView.loadUrl(logoutUrl)
+						
+						Toast.makeText(this@MainActivity, "Logging out...", Toast.LENGTH_SHORT).show()
+					}
+					"{\"ok\":true,\"message\":\"Logout redirect allowed\"}"
+				} catch (e: Exception) {
+					android.util.Log.e("ElintPOS", "Error allowing logout redirect", e)
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
 			}
@@ -2878,10 +2969,11 @@ class MainActivity : ComponentActivity() {
 				// Handle pos/view navigation - keep in same WebView to maintain interface
 				try {
 					val path = uri.encodedPath ?: ""
-					// Block accidental logout redirects that can occur around print flows
+					// Allow all logout redirects - user can logout from anywhere
 					if (path.contains("/auth/logout") || path.endsWith("/logout")) {
-						Toast.makeText(this@MainActivity, "Blocked logout redirect", Toast.LENGTH_SHORT).show()
-						return true
+						android.util.Log.d("ElintPOS", "Allowing logout redirect: $uri")
+						// Let the logout proceed - don't block it
+						return false
 					}
 					// For pos/view pages, load in same WebView to maintain JavaScript interface
 					if (path.contains("/pos/view/") || path.contains("/sales/view/")) {
