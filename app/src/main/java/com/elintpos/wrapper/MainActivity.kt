@@ -134,6 +134,9 @@ class MainActivity : ComponentActivity() {
 	private var filePathCallback: ValueCallback<Array<Uri>>? = null
 	private var cameraImageUri: Uri? = null
 
+	// Track URLs we've retried after a 403 to avoid infinite loops
+	private val retried403Urls = mutableSetOf<String>()
+
 	private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 	private lateinit var genericPermissionsLauncher: ActivityResultLauncher<Array<String>>
 	private var pendingPermissionsCallback: ((Map<String, Boolean>) -> Unit)? = null
@@ -2806,6 +2809,26 @@ class MainActivity : ComponentActivity() {
 		view.overScrollMode = WebView.OVER_SCROLL_NEVER
 
 		view.webViewClient = object : WebViewClient() {
+			override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+				super.onPageStarted(view, url, favicon)
+				try {
+					val u = url ?: return
+					val parsed = Uri.parse(u)
+					val host = parsed.host ?: return
+					if (!host.endsWith(BASE_DOMAIN)) return
+					val path = parsed.encodedPath ?: ""
+					// For report pages, reload immediately with headers to avoid a visible 403 before retry
+					if ((path.contains("/reports") || path.contains("/report") || path.contains("profit") || path.contains("loss"))
+						&& !retried403Urls.contains(u)) {
+						retried403Urls.add(u)
+						val headers = mutableMapOf<String, String>()
+						headers["X-Requested-With"] = "XMLHttpRequest"
+						headers["Referer"] = try { webView.url ?: BASE_URL } catch (_: Exception) { BASE_URL }
+						try { view?.stopLoading() } catch (_: Exception) {}
+						view?.post { view.loadUrl(u, headers) }
+					}
+				} catch (_: Exception) { }
+			}
 			override fun onPageFinished(view: WebView?, url: String?) {
 				super.onPageFinished(view, url)
 				
@@ -3013,6 +3036,16 @@ class MainActivity : ComponentActivity() {
 				// Stay within WebView for our domain; otherwise let OS handle http/https externals
 				val host = uri.host ?: return false
 				return if (host.endsWith(BASE_DOMAIN)) {
+					// For report pages (e.g., Profit & Loss), add safe headers to avoid server 403 on range change
+					val path = uri.encodedPath ?: ""
+					if (path.contains("/reports") || path.contains("/report") || path.contains("profit") || path.contains("loss")) {
+						val headers = mutableMapOf<String, String>()
+						headers["X-Requested-With"] = "XMLHttpRequest"
+						// Use current page as referer when available
+						headers["Referer"] = try { webView.url ?: BASE_URL } catch (_: Exception) { BASE_URL }
+						view?.loadUrl(uri.toString(), headers)
+						return true
+					}
 					false
 				} else {
 					openExternalIntent(Intent(Intent.ACTION_VIEW, uri))
@@ -3024,6 +3057,32 @@ class MainActivity : ComponentActivity() {
 			override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
 				// Avoid app crash on misconfigured certs while viewing receipts. Prefer proceed; fix server SSL in production.
 				try { handler?.proceed() } catch (_: Exception) { handler?.cancel() }
+			}
+
+			override fun onReceivedHttpError(
+				view: WebView?,
+				request: WebResourceRequest?,
+				errorResponse: android.webkit.WebResourceResponse?
+			) {
+				try {
+					val status = errorResponse?.statusCode ?: return
+					if (request?.isForMainFrame == true && status == 403) {
+						val badUrl = request.url?.toString() ?: return
+						// Retry once with headers to avoid showing the server error page
+						if (!retried403Urls.contains(badUrl)) {
+							retried403Urls.add(badUrl)
+							val headers = mutableMapOf<String, String>()
+							headers["X-Requested-With"] = "XMLHttpRequest"
+							headers["Referer"] = try { webView.url ?: BASE_URL } catch (_: Exception) { BASE_URL }
+							view?.post { view.loadUrl(badUrl, headers) }
+							return
+						}
+						// If already retried, just go back to last good page instead of showing the error
+						view?.post {
+							if (webView.canGoBack()) webView.goBack() else webView.loadUrl(BASE_URL)
+						}
+					}
+				} catch (_: Exception) { }
 			}
 		}
 
