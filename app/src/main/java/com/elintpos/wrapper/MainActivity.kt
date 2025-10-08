@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
 	companion object {
 		// Replace YOUR_DOMAIN_HERE with your actual domain (no scheme). Example: "pos.example.com"
 
-		private const val BASE_DOMAIN = "androidtesting.elintpos.in"
+		private const val BASE_DOMAIN = "bendthetrend.elintpos.in"
 		private const val BASE_URL = "https://$BASE_DOMAIN/"
 
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"

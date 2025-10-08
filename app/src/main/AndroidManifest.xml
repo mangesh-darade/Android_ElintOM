@@ -73,8 +73,8 @@
 				<category android:name="android.intent.category.DEFAULT" />
 				<category android:name="android.intent.category.BROWSABLE" />
 
-				<data android:scheme="http" android:host="androidtesting.elintpos.in" />
-				<data android:scheme="https" android:host="androidtesting.elintpos.in" />
+				<data android:scheme="http" android:host="bendthetrend.elintpos.in" />
+				<data android:scheme="https" android:host="bendthetrend.elintpos.in" />
 
 			</intent-filter>
 
