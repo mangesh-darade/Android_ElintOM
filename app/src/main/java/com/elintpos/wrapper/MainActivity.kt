@@ -35,6 +35,7 @@ import android.print.PrintManager
 import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.widget.Toast
+import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,6 +66,7 @@ import com.elintpos.wrapper.R
 import com.elintpos.wrapper.printer.vendor.VendorPrinter
 import com.elintpos.wrapper.printer.vendor.EpsonPrinter
 import com.elintpos.wrapper.printer.vendor.XPrinter
+import com.elintpos.wrapper.printer.vendor.AutoReplyPrint
 import com.elintpos.wrapper.printer.PrinterConfigManager
 import com.elintpos.wrapper.printer.PrinterTester
 import com.elintpos.wrapper.sdk.SdkDownloader
@@ -83,7 +85,7 @@ class MainActivity : ComponentActivity() {
 	companion object {
 		// Replace YOUR_DOMAIN_HERE with your actual domain (no scheme). Example: "pos.example.com"
 
-		private const val BASE_DOMAIN = "bendthetrend.elintpos.in"
+		private const val BASE_DOMAIN = "androidtesting.elintpos.in"
 		private const val BASE_URL = "https://$BASE_DOMAIN/"
 
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"
@@ -214,11 +216,64 @@ class MainActivity : ComponentActivity() {
 	private val printerConfigManager: PrinterConfigManager by lazy { PrinterConfigManager(this) }
 	private val printerTester: PrinterTester by lazy { PrinterTester(this) }
 	private val sdkDownloader: SdkDownloader by lazy { SdkDownloader(this) }
+	private val unifiedPrinterHandler: UnifiedPrinterHandler by lazy { UnifiedPrinterHandler(this) }
+	private val autoReplyPrint: AutoReplyPrint by lazy { AutoReplyPrint(this) }
 
 	private fun isAutoStartEnabled(): Boolean = prefs.getBoolean("auto_start_enabled", true)
 	private fun setAutoStartEnabled(enabled: Boolean) { prefs.edit().putBoolean("auto_start_enabled", enabled).apply() }
 	private fun isKioskEnabled(): Boolean = prefs.getBoolean("kiosk_enabled", false)
 	private fun setKioskEnabled(enabled: Boolean) { prefs.edit().putBoolean("kiosk_enabled", enabled).apply() }
+	
+	// Session expiry handling
+	private val SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000L // 8 hours default
+	private var lastActivityTime: Long = System.currentTimeMillis()
+	
+	private fun checkSessionExpiry(): Boolean {
+		val sessionTimeout = prefs.getLong("session_timeout_ms", SESSION_TIMEOUT_MS)
+		val lastActivity = prefs.getLong("last_activity_time", System.currentTimeMillis())
+		val elapsed = System.currentTimeMillis() - lastActivity
+		
+		if (elapsed > sessionTimeout) {
+			// Session expired
+			handleSessionExpiry()
+			return true
+		}
+		return false
+	}
+	
+	private fun updateLastActivityTime() {
+		lastActivityTime = System.currentTimeMillis()
+		prefs.edit().putLong("last_activity_time", lastActivityTime).apply()
+	}
+	
+	private fun handleSessionExpiry() {
+		// Clear session data
+		prefs.edit().remove("is_logged_in").apply()
+		
+		// Show session expiry message
+		Toast.makeText(this, "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+		
+		// Navigate to InitialSetupActivity or show login
+		val intent = Intent(this, InitialSetupActivity::class.java)
+		intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+		startActivity(intent)
+		finish()
+	}
+	
+	override fun onResume() {
+		super.onResume()
+		updateLastActivityTime()
+		
+		// Check session expiry when app resumes
+		if (checkSessionExpiry()) {
+			return
+		}
+	}
+	
+	override fun onPause() {
+		super.onPause()
+		updateLastActivityTime()
+	}
 
 	private fun ensureLockTaskWhitelisted() {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -421,6 +476,239 @@ class MainActivity : ComponentActivity() {
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
 			}
+
+			// AutoReplyPrint SDK Methods
+			@android.webkit.JavascriptInterface
+			fun isAutoReplyPrintAvailable(): String {
+				return try {
+					val available = autoReplyPrint.isAvailable()
+					"{\"ok\":true,\"available\":${'$'}available}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintDiscoverPrinters(): String {
+				return try {
+					if (!autoReplyPrint.isAvailable()) {
+						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
+					}
+					
+					val discoveredPrinters = mutableListOf<Any>()
+					var discoveryStarted = false
+					
+					discoveryStarted = autoReplyPrint.startDiscover { printerDevice ->
+						try {
+							// Extract printer information using reflection
+							val deviceClass = printerDevice::class.java
+							val printerMap = mutableMapOf<String, Any>()
+							
+							// Try to get printer name
+							try {
+								val nameField = deviceClass.getField("printer_name")
+								printerMap["name"] = nameField.get(printerDevice)?.toString() ?: "Unknown"
+							} catch (_: Exception) {
+								printerMap["name"] = "Unknown Printer"
+							}
+							
+							// Try to get printer address/MAC
+							try {
+								val addressField = deviceClass.getField("printer_address")
+								printerMap["address"] = addressField.get(printerDevice)?.toString() ?: ""
+							} catch (_: Exception) {
+								printerMap["address"] = ""
+							}
+							
+							// Try to get connection type
+							try {
+								val typeField = deviceClass.getField("connection_type")
+								printerMap["connectionType"] = typeField.get(printerDevice)?.toString() ?: "Unknown"
+							} catch (_: Exception) {
+								printerMap["connectionType"] = "Unknown"
+							}
+							
+							printerMap["deviceObject"] = printerDevice.hashCode().toString() // Store reference
+							discoveredPrinters.add(printerMap)
+							
+							// Notify JavaScript about discovered printer
+							runOnUiThread {
+								val printerJson = JSONObject(printerMap as Map<*, *>)
+								webView.evaluateJavascript(
+									"if (window.onAutoReplyPrintDiscovered) window.onAutoReplyPrintDiscovered(${'$'}printerJson);",
+									null
+								)
+							}
+						} catch (e: Exception) {
+							Log.e("MainActivity", "Error processing discovered printer", e)
+						}
+					}
+					
+					if (discoveryStarted) {
+						"{\"ok\":true,\"msg\":\"Discovery started\"}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Failed to start discovery\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintStopDiscovery(): String {
+				return try {
+					val stopped = autoReplyPrint.stopDiscover()
+					"{\"ok\":${'$'}stopped}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintConnect(printerDeviceHash: String): String {
+				return try {
+					if (!autoReplyPrint.isAvailable()) {
+						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
+					}
+					
+					// Note: In a real implementation, you'd need to store discovered devices
+					// For now, this is a placeholder - you'll need to pass the actual device object
+					"{\"ok\":false,\"msg\":\"Connection requires device object - use discovered printer\"}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintIsConnected(): String {
+				return try {
+					val connected = autoReplyPrint.isConnected()
+					"{\"ok\":true,\"connected\":${'$'}connected}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintDisconnect(): String {
+				return try {
+					val disconnected = autoReplyPrint.disconnect()
+					"{\"ok\":${'$'}disconnected}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintPrintText(text: String): String {
+				return try {
+					if (!autoReplyPrint.isAvailable()) {
+						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
+					}
+					
+					if (!autoReplyPrint.isConnected()) {
+						return "{\"ok\":false,\"msg\":\"Printer not connected\"}"
+					}
+					
+					// Convert text to bitmap for printing
+					// This is a simplified version - you may want to use ReceiptFormatter
+					val bitmap = createTextBitmap(text, 384) // 58mm width
+					val result = autoReplyPrint.printBitmap(bitmap)
+					
+					if (result) {
+						"{\"ok\":true}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Print failed\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintPrintBitmap(base64Image: String): String {
+				return try {
+					if (!autoReplyPrint.isAvailable()) {
+						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
+					}
+					
+					if (!autoReplyPrint.isConnected()) {
+						return "{\"ok\":false,\"msg\":\"Printer not connected\"}"
+					}
+					
+					// Decode base64 image
+					val imageBytes = android.util.Base64.decode(base64Image, android.util.Base64.DEFAULT)
+					val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+						?: return "{\"ok\":false,\"msg\":\"Failed to decode image\"}"
+					
+					val result = autoReplyPrint.printBitmap(bitmap)
+					
+					if (result) {
+						"{\"ok\":true}"
+					} else {
+						"{\"ok\":false,\"msg\":\"Print failed\"}"
+					}
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			@android.webkit.JavascriptInterface
+			fun autoreplyprintGetStatus(): String {
+				return try {
+					val obj = JSONObject()
+					obj.put("available", autoReplyPrint.isAvailable())
+					obj.put("connected", autoReplyPrint.isConnected())
+					
+					val resolution = autoReplyPrint.getPrinterResolution()
+					if (resolution != null) {
+						try {
+							val resClass = resolution::class.java
+							val widthMethod = resClass.getMethod("getWidthMM")
+							val heightMethod = resClass.getMethod("getHeightMM")
+							val dotsPerMMMethod = resClass.getMethod("getDotsPerMM")
+							
+							obj.put("resolution", JSONObject().apply {
+								put("widthMM", widthMethod.invoke(resolution))
+								put("heightMM", heightMethod.invoke(resolution))
+								put("dotsPerMM", dotsPerMMMethod.invoke(resolution))
+							})
+						} catch (_: Exception) {
+							// Resolution info not available
+						}
+					}
+					
+					"{\"ok\":true,\"status\":${'$'}obj}"
+				} catch (e: Exception) {
+					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				}
+			}
+
+			// Helper function to create bitmap from text
+			private fun createTextBitmap(text: String, width: Int): android.graphics.Bitmap {
+				val paint = android.graphics.Paint().apply {
+					color = android.graphics.Color.BLACK
+					textSize = 24f
+					isAntiAlias = true
+				}
+				
+				val bounds = android.graphics.Rect()
+				paint.getTextBounds(text, 0, text.length, bounds)
+				
+				val height = (bounds.height() * (text.lines().size + 2)).coerceAtLeast(100)
+				val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+				val canvas = android.graphics.Canvas(bitmap)
+				canvas.drawColor(android.graphics.Color.WHITE)
+				
+				var y = bounds.height().toFloat()
+				text.lines().forEach { line ->
+					canvas.drawText(line, 0f, y, paint)
+					y += bounds.height() + 10
+				}
+				
+				return bitmap
+			}
+
 			@android.webkit.JavascriptInterface
 			fun choosePrinterAndPrint(text: String): String {
 				return try {
@@ -699,40 +987,16 @@ class MainActivity : ComponentActivity() {
 
 			@android.webkit.JavascriptInterface
 			fun btPrint(text: String): String {
-				return try {
-					escPosPrinter?.printText(
-						text,
-						leftMarginDots = defaultPrintConfig.leftMargin,
-						rightMarginDots = defaultPrintConfig.rightMargin,
-						lineSpacing = defaultPrintConfig.lineSpacing,
-						widthMultiplier = defaultPrintConfig.widthMul,
-						heightMultiplier = defaultPrintConfig.heightMul,
-						pageWidthDots = defaultPrintConfig.pageWidthDots,
-						linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
-					)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
+				// Use unified printer handler with Bluetooth preference
+				val result = unifiedPrinterHandler.print(text, "bluetooth")
+				return result.toJson()
 			}
 
 			@android.webkit.JavascriptInterface
 			fun usbPrint(text: String): String {
-				return try {
-					usbPrinter?.printText(
-						text,
-						leftMarginDots = defaultPrintConfig.leftMargin,
-						rightMarginDots = defaultPrintConfig.rightMargin,
-						lineSpacing = defaultPrintConfig.lineSpacing,
-						widthMultiplier = defaultPrintConfig.widthMul,
-						heightMultiplier = defaultPrintConfig.heightMul,
-						pageWidthDots = defaultPrintConfig.pageWidthDots,
-						linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
-					)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
+				// Use unified printer handler with USB preference
+				val result = unifiedPrinterHandler.print(text, "usb")
+				return result.toJson()
 			}
 
 			@android.webkit.JavascriptInterface
@@ -780,29 +1044,14 @@ class MainActivity : ComponentActivity() {
 			@android.webkit.JavascriptInterface
 			fun printFromWeb(text: String, prefer: String): String {
 				android.util.Log.d("ElintPOS_JS", "printFromWeb called with text length: ${text.length}, prefer: $prefer")
-				Toast.makeText(this@MainActivity, "Print request received: $prefer", Toast.LENGTH_SHORT).show()
-				return try {
-					val target = prefer.lowercase()
-					if (target == "bt" && isBtConnected) {
-						btPrint(text)
-					} else if (target == "usb" && isUsbConnected) {
-						usbPrint(text)
-					} else if (target == "lan" && isLanConnected) {
-						lanPrint(text)
-					} else if (isBtConnected) {
-						btPrint(text)
-					} else if (isUsbConnected) {
-						usbPrint(text)
-					} else if (isLanConnected) {
-						lanPrint(text)
-					} else {
-						return "{\"ok\":false,\"msg\":\"No printer connected\"}"
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					android.util.Log.e("ElintPOS_JS", "Print error: ${e.message}", e)
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+				// Use unified printer handler - automatically uses configured printer SDK
+				val result = unifiedPrinterHandler.print(text, prefer)
+				if (result.success) {
+					Toast.makeText(this@MainActivity, "Print sent successfully", Toast.LENGTH_SHORT).show()
+				} else {
+					Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
 				}
+				return result.toJson()
 			}
 
 			// LAN Printer Functions
@@ -823,74 +1072,24 @@ class MainActivity : ComponentActivity() {
 
 			@android.webkit.JavascriptInterface
 			fun lanPrint(text: String): String {
-				return try {
-					lanPrinter?.printText(
-						text,
-						leftMarginDots = defaultPrintConfig.leftMargin,
-						rightMarginDots = defaultPrintConfig.rightMargin,
-						lineSpacing = defaultPrintConfig.lineSpacing,
-						widthMultiplier = defaultPrintConfig.widthMul,
-						heightMultiplier = defaultPrintConfig.heightMul,
-						pageWidthDots = defaultPrintConfig.pageWidthDots,
-						linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
-					)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
+				// Use unified printer handler with LAN preference
+				val result = unifiedPrinterHandler.print(text, "lan")
+				return result.toJson()
 			}
 
 			// Barcode and QR Code Functions
 			@android.webkit.JavascriptInterface
 			fun printBarcode(data: String, barcodeType: Int = 73, height: Int = 50, width: Int = 2, position: Int = 0, prefer: String = "auto"): String {
-				return try {
-					val target = prefer.lowercase()
-					when {
-						target == "bt" && isBtConnected -> {
-							// Bluetooth barcode printing (simplified - would need BT printer support)
-							btPrint("Barcode: $data")
-						}
-						target == "usb" && isUsbConnected -> {
-							// USB barcode printing (simplified - would need USB printer support)
-							usbPrint("Barcode: $data")
-						}
-						target == "lan" && isLanConnected -> {
-							lanPrinter?.printBarcode(data, barcodeType, height, width, position)
-						}
-						isLanConnected -> {
-							lanPrinter?.printBarcode(data, barcodeType, height, width, position)
-						}
-						else -> return "{\"ok\":false,\"msg\":\"No suitable printer connected\"}"
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
+				// Use unified printer handler for barcode printing
+				val result = unifiedPrinterHandler.printBarcode(data, barcodeType, height, width, position, prefer)
+				return result.toJson()
 			}
 
 			@android.webkit.JavascriptInterface
 			fun printQRCode(data: String, size: Int = 3, errorCorrection: Int = 0, prefer: String = "auto"): String {
-				return try {
-					val target = prefer.lowercase()
-					when {
-						target == "bt" && isBtConnected -> {
-							btPrint("QR Code: $data")
-						}
-						target == "usb" && isUsbConnected -> {
-							usbPrint("QR Code: $data")
-						}
-						target == "lan" && isLanConnected -> {
-							lanPrinter?.printQRCode(data, size, errorCorrection)
-						}
-						isLanConnected -> {
-							lanPrinter?.printQRCode(data, size, errorCorrection)
-						}
-						else -> return "{\"ok\":false,\"msg\":\"No suitable printer connected\"}"
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
+				// Use unified printer handler for QR code printing
+				val result = unifiedPrinterHandler.printQRCode(data, size, errorCorrection, prefer)
+				return result.toJson()
 			}
 
 			// Enhanced Receipt Formatting
@@ -913,24 +1112,25 @@ class MainActivity : ComponentActivity() {
 					)
 					
 					val formattedText = receiptFormatter.formatInvoice(saleData, config)
-					val result = printFromWeb(formattedText, prefer)
+					// Use unified printer handler - automatically uses configured printer SDK
+					val result = unifiedPrinterHandler.print(formattedText, prefer)
 					
 					// Print barcode/QR if requested
 					if (config.includeBarcode) {
 						val invoiceNumber = saleData.optString("invoice_number", "")
 						if (invoiceNumber.isNotEmpty()) {
-							printBarcode(invoiceNumber, ReceiptFormatter.BARCODE_CODE128, prefer = prefer)
+							unifiedPrinterHandler.printBarcode(invoiceNumber, ReceiptFormatter.BARCODE_CODE128, preferType = prefer)
 						}
 					}
 					
 					if (config.includeQR) {
 						val invoiceNumber = saleData.optString("invoice_number", "")
 						if (invoiceNumber.isNotEmpty()) {
-							printQRCode(invoiceNumber, prefer = prefer)
+							unifiedPrinterHandler.printQRCode(invoiceNumber, preferType = prefer)
 						}
 					}
 					
-					result
+					result.toJson()
 				} catch (e: Exception) {
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
@@ -953,7 +1153,9 @@ class MainActivity : ComponentActivity() {
 					)
 					
 					val formattedText = receiptFormatter.formatReceipt(saleData, config)
-					printFromWeb(formattedText, prefer)
+					// Use unified printer handler - automatically uses configured printer SDK
+					val result = unifiedPrinterHandler.print(formattedText, prefer)
+					result.toJson()
 				} catch (e: Exception) {
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
@@ -975,7 +1177,9 @@ class MainActivity : ComponentActivity() {
 					)
 					
 					val formattedText = receiptFormatter.formatKitchenOrder(orderData, config)
-					printFromWeb(formattedText, prefer)
+					// Use unified printer handler - automatically uses configured printer SDK
+					val result = unifiedPrinterHandler.print(formattedText, prefer)
+					result.toJson()
 				} catch (e: Exception) {
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
@@ -1230,118 +1434,45 @@ class MainActivity : ComponentActivity() {
 			
 			@android.webkit.JavascriptInterface
 			fun printWebContent(content: String, printerType: String = "auto"): String {
-				return try {
-					val printConfig = PrintConfig(
-						leftMargin = 0,
-						rightMargin = 0,
-						lineSpacing = 30,
-						widthMul = 0,
-						heightMul = 0,
-						pageWidthDots = 384,
-						linesPerPage = 0
-					)
-					
-					when (printerType.lowercase()) {
-						"usb" -> {
-							if (isUsbConnected && usbPrinter != null) {
-								usbPrinter!!.printText(
-									content,
-									leftMarginDots = printConfig.leftMargin,
-									rightMarginDots = printConfig.rightMargin,
-									lineSpacing = printConfig.lineSpacing,
-									widthMultiplier = printConfig.widthMul,
-									heightMultiplier = printConfig.heightMul,
-									pageWidthDots = printConfig.pageWidthDots,
-									linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
-								)
-								"{\"ok\":true,\"msg\":\"Content sent to USB printer\"}"
-							} else {
-								"{\"ok\":false,\"msg\":\"USB printer not connected\"}"
+				// Check if direct print is enabled (show_print_dialog = false means direct print)
+				val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+				val showPrintDialog = prefs.getBoolean("show_print_dialog", false)
+				
+				if (!showPrintDialog) {
+					// Direct print using configured printer SDK with configured page size
+					val result = unifiedPrinterHandler.print(content, printerType)
+					return result.toJson()
+				} else {
+					// Show Android print dialog
+					return try {
+						runOnUiThread {
+							val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
+							val printAdapter = webView.createPrintDocumentAdapter("Web Content")
+							
+							// Get configured paper size from printer profile
+							val profile = printerConfigManager.getLastUsedProfile() 
+								?: printerConfigManager.getAllProfiles().firstOrNull { it.enabled }
+							
+							val mediaSize = when (profile?.paperWidth) {
+								PrinterConfigManager.PAPER_58MM -> PrintAttributes.MediaSize.ISO_A7 // Closest to 58mm
+								PrinterConfigManager.PAPER_112MM -> PrintAttributes.MediaSize.ISO_A4
+								else -> PrintAttributes.MediaSize.ISO_A6 // Closest to 80mm
 							}
+							
+							val printJob = printManager.print(
+								"Web Print Job",
+								printAdapter,
+								PrintAttributes.Builder()
+									.setMediaSize(mediaSize)
+									.setResolution(PrintAttributes.Resolution("printer", "printer", 600, 600))
+									.setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
+									.build()
+							)
 						}
-						"bluetooth", "bt" -> {
-							if (isBtConnected && escPosPrinter != null) {
-								escPosPrinter!!.printText(
-									content,
-									leftMarginDots = printConfig.leftMargin,
-									rightMarginDots = printConfig.rightMargin,
-									lineSpacing = printConfig.lineSpacing,
-									widthMultiplier = printConfig.widthMul,
-									heightMultiplier = printConfig.heightMul,
-									pageWidthDots = printConfig.pageWidthDots,
-									linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
-								)
-								"{\"ok\":true,\"msg\":\"Content sent to Bluetooth printer\"}"
-							} else {
-								"{\"ok\":false,\"msg\":\"Bluetooth printer not connected\"}"
-							}
-						}
-						"lan", "network" -> {
-							if (isLanConnected && lanPrinter != null) {
-								lanPrinter!!.printText(
-									content,
-									leftMarginDots = printConfig.leftMargin,
-									rightMarginDots = printConfig.rightMargin,
-									lineSpacing = printConfig.lineSpacing,
-									widthMultiplier = printConfig.widthMul,
-									heightMultiplier = printConfig.heightMul,
-									pageWidthDots = printConfig.pageWidthDots,
-									linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
-								)
-								"{\"ok\":true,\"msg\":\"Content sent to LAN printer\"}"
-							} else {
-								"{\"ok\":false,\"msg\":\"LAN printer not connected\"}"
-							}
-						}
-						"auto" -> {
-							// Try to print using any available printer
-							when {
-								isUsbConnected && usbPrinter != null -> {
-									usbPrinter!!.printText(
-										content,
-										leftMarginDots = printConfig.leftMargin,
-										rightMarginDots = printConfig.rightMargin,
-										lineSpacing = printConfig.lineSpacing,
-										widthMultiplier = printConfig.widthMul,
-										heightMultiplier = printConfig.heightMul,
-										pageWidthDots = printConfig.pageWidthDots,
-										linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
-									)
-									"{\"ok\":true,\"msg\":\"Content sent to USB printer\"}"
-								}
-								isBtConnected && escPosPrinter != null -> {
-									escPosPrinter!!.printText(
-										content,
-										leftMarginDots = printConfig.leftMargin,
-										rightMarginDots = printConfig.rightMargin,
-										lineSpacing = printConfig.lineSpacing,
-										widthMultiplier = printConfig.widthMul,
-										heightMultiplier = printConfig.heightMul,
-										pageWidthDots = printConfig.pageWidthDots,
-										linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
-									)
-									"{\"ok\":true,\"msg\":\"Content sent to Bluetooth printer\"}"
-								}
-								isLanConnected && lanPrinter != null -> {
-									lanPrinter!!.printText(
-										content,
-										leftMarginDots = printConfig.leftMargin,
-										rightMarginDots = printConfig.rightMargin,
-										lineSpacing = printConfig.lineSpacing,
-										widthMultiplier = printConfig.widthMul,
-										heightMultiplier = printConfig.heightMul,
-										pageWidthDots = printConfig.pageWidthDots,
-										linesPerPage = printConfig.linesPerPage.takeIf { it > 0 }
-									)
-									"{\"ok\":true,\"msg\":\"Content sent to LAN printer\"}"
-								}
-								else -> "{\"ok\":false,\"msg\":\"No printer connected\"}"
-							}
-						}
-						else -> "{\"ok\":false,\"msg\":\"Unknown printer type: $printerType\"}"
+						"{\"ok\":true,\"msg\":\"Print dialog opened\"}"
+					} catch (e: Exception) {
+						"{\"ok\":false,\"msg\":\"Failed to open print dialog: ${e.message}\"}"
 					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Print error: ${e.message}\"}"
 				}
 			}
 
@@ -1350,16 +1481,98 @@ class MainActivity : ComponentActivity() {
 			@android.webkit.JavascriptInterface
 			fun showNativePrintDialog(): String {
 				return try {
+					// Check if direct print is enabled (show_print_dialog = false means direct print)
+					val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+					val showPrintDialog = prefs.getBoolean("show_print_dialog", false)
+					
+					if (!showPrintDialog) {
+						// Direct print using configured printer SDK
+						// Extract text content from webview for thermal printer
+						webView.evaluateJavascript(
+							"(function() { " +
+							"var body = document.body.innerText || document.body.textContent || ''; " +
+							"if (!body || body.trim() === '') { " +
+							"  // Try to get content from common print containers " +
+							"  var printArea = document.querySelector('.print-area, .receipt, .invoice, #print-content, [data-print]'); " +
+							"  if (printArea) body = printArea.innerText || printArea.textContent || ''; " +
+							"} " +
+							"return body; " +
+							"})();"
+						) { text ->
+							Thread {
+								try {
+									// Clean up the JavaScript string result
+									var content = text?.replace("\\n", "\n")?.replace("\\\"", "\"")?.replace("\\r", "\r")?.trim('"') ?: ""
+									
+									// If content is still empty, try getting all text
+									if (content.isEmpty()) {
+										runOnUiThread {
+											webView.evaluateJavascript(
+												"(function() { return document.body ? document.body.innerText : ''; })();"
+											) { text2 ->
+												Thread {
+													content = text2?.replace("\\n", "\n")?.replace("\\\"", "\"")?.trim('"') ?: ""
+													if (content.isNotEmpty()) {
+														val result = unifiedPrinterHandler.print(content, null)
+														runOnUiThread {
+															if (result.success) {
+																Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
+															} else {
+																Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
+															}
+														}
+													} else {
+														runOnUiThread {
+															Toast.makeText(this@MainActivity, "No content to print", Toast.LENGTH_SHORT).show()
+														}
+													}
+												}.start()
+											}
+										}
+										return@Thread
+									}
+									
+									// Print the content
+									val result = unifiedPrinterHandler.print(content, null)
+									runOnUiThread {
+										if (result.success) {
+											Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
+										} else {
+											Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
+										}
+									}
+								} catch (e: Exception) {
+									runOnUiThread {
+										Toast.makeText(this@MainActivity, "Print error: ${e.message}", Toast.LENGTH_SHORT).show()
+									}
+								}
+							}.start()
+						}
+						return "{\"ok\":true,\"msg\":\"Direct print initiated using configured printer\"}"
+					}
+					
+					// Show Android print dialog
 					runOnUiThread {
 						val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
 						val printAdapter = webView.createPrintDocumentAdapter("Web Content")
+						
+						// Get configured paper size from printer profile
+						val profile = printerConfigManager.getLastUsedProfile() 
+							?: printerConfigManager.getAllProfiles().firstOrNull { it.enabled }
+						
+						val mediaSize = when (profile?.paperWidth) {
+							PrinterConfigManager.PAPER_58MM -> PrintAttributes.MediaSize.ISO_A7 // Closest to 58mm
+							PrinterConfigManager.PAPER_112MM -> PrintAttributes.MediaSize.ISO_A4
+							else -> PrintAttributes.MediaSize.ISO_A6 // Closest to 80mm
+						}
+						
 						val printJob = printManager.print(
 							"Web Print Job",
 							printAdapter,
 							PrintAttributes.Builder()
-								.setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+								.setMediaSize(mediaSize)
 								.setResolution(PrintAttributes.Resolution("printer", "printer", 600, 600))
-								.setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+								.setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
 								.build()
 						)
 					}
@@ -1644,21 +1857,107 @@ class MainActivity : ComponentActivity() {
 			@android.webkit.JavascriptInterface
 			fun systemPrint(jobName: String?): String {
 				return try {
+					// Check if direct print is enabled (show_print_dialog = false means direct print)
+					val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
+					val showPrintDialog = prefs.getBoolean("show_print_dialog", false)
+					
+					if (!showPrintDialog) {
+						// Direct print using configured printer SDK with configured paper size
+						android.util.Log.d("MainActivity", "Direct print triggered - extracting content from webview")
+						
+						webView.evaluateJavascript(
+							"(function() { " +
+							"var body = document.body.innerText || document.body.textContent || ''; " +
+							"if (!body || body.trim() === '') { " +
+							"  // Try to get content from common print containers " +
+							"  var printArea = document.querySelector('.print-area, .receipt, .invoice, #print-content, [data-print], .receipt-content'); " +
+							"  if (printArea) body = printArea.innerText || printArea.textContent || ''; " +
+							"} " +
+							"return body; " +
+							"})();"
+						) { text ->
+							Thread {
+								try {
+									// Clean up the JavaScript string result
+									var content = text?.replace("\\n", "\n")?.replace("\\\"", "\"")?.replace("\\r", "\r")?.trim('"') ?: ""
+									
+									// If content is still empty, try getting all text
+									if (content.isEmpty()) {
+										runOnUiThread {
+											webView.evaluateJavascript(
+												"(function() { return document.body ? document.body.innerText : ''; })();"
+											) { text2 ->
+												Thread {
+													content = text2?.replace("\\n", "\n")?.replace("\\\"", "\"")?.trim('"') ?: ""
+													if (content.isNotEmpty()) {
+														android.util.Log.d("MainActivity", "Printing content (length: ${content.length}) with configured printer")
+														val result = unifiedPrinterHandler.print(content, null)
+														runOnUiThread {
+															if (result.success) {
+																Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
+															} else {
+																Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
+															}
+														}
+													} else {
+														runOnUiThread {
+															Toast.makeText(this@MainActivity, "No content to print", Toast.LENGTH_SHORT).show()
+														}
+													}
+												}.start()
+											}
+										}
+										return@Thread
+									}
+									
+									// Print the content using configured printer with configured paper size
+									android.util.Log.d("MainActivity", "Printing content (length: ${content.length}) with configured printer")
+									val result = unifiedPrinterHandler.print(content, null)
+									runOnUiThread {
+										if (result.success) {
+											Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
+										} else {
+											Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
+										}
+									}
+								} catch (e: Exception) {
+									android.util.Log.e("MainActivity", "Direct print error", e)
+									runOnUiThread {
+										Toast.makeText(this@MainActivity, "Print error: ${e.message}", Toast.LENGTH_SHORT).show()
+									}
+								}
+							}.start()
+						}
+						return "{\"ok\":true,\"msg\":\"Direct print initiated using configured printer\"}"
+					}
+					
+					// Show Android print dialog
 					runOnUiThread {
 						val pm = getSystemService(Context.PRINT_SERVICE) as PrintManager
 						val adapter: PrintDocumentAdapter = webView.createPrintDocumentAdapter(jobName ?: "POS Print")
+						
+						// Get configured paper size from printer profile
+						val profile = printerConfigManager.getLastUsedProfile() 
+							?: printerConfigManager.getAllProfiles().firstOrNull { it.enabled }
+						
+						val mediaSize = when (profile?.paperWidth) {
+							PrinterConfigManager.PAPER_58MM -> PrintAttributes.MediaSize.ISO_A7 // Closest to 58mm
+							PrinterConfigManager.PAPER_112MM -> PrintAttributes.MediaSize.ISO_A4
+							else -> PrintAttributes.MediaSize.ISO_A6 // Closest to 80mm
+						}
+						
 						// Request high quality output and zero margins to avoid blurry text and extra whitespace
 						val attrs = PrintAttributes.Builder()
 							// Many services ignore custom resolution/media size, but when honored it improves sharpness and removes margins
 							.setResolution(PrintAttributes.Resolution("high", "High quality", 600, 600))
-							// Let the printer choose its best available paper (A4, Letter, 58mm/80mm roll, etc.)
-							.setMediaSize(PrintAttributes.MediaSize.UNKNOWN_PORTRAIT)
-							.setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+							// Use configured paper size
+							.setMediaSize(mediaSize)
+							.setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
 							.setMinMargins(PrintAttributes.Margins.NO_MARGINS)
 							.build()
 						pm.print(jobName ?: "POS Print", adapter, attrs)
 					}
-					"{\"ok\":true}"
+					"{\"ok\":true,\"msg\":\"Print dialog opened\"}"
 				} catch (e: Exception) {
 					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
 				}
@@ -2133,6 +2432,9 @@ class MainActivity : ComponentActivity() {
 						PrinterConfigManager.TYPE_XPRINTER -> {
 							xprinterPrintText(testText)
 						}
+						PrinterConfigManager.TYPE_AUTOREPLYPRINT -> {
+							autoreplyprintPrintText(testText)
+						}
 						PrinterConfigManager.TYPE_VENDOR -> {
 							vendorPrintText(testText)
 						}
@@ -2329,8 +2631,23 @@ class MainActivity : ComponentActivity() {
 		if (savedInstanceState != null) {
 			webView.restoreState(savedInstanceState)
 		} else {
-			webView.loadUrl(BASE_URL)
+			// Load URL from saved domain or use default
+			val selectedDomain = prefs.getString("selected_domain", null)
+			val url = if (selectedDomain != null && selectedDomain.isNotEmpty()) {
+				if (selectedDomain.startsWith("http")) selectedDomain else "https://$selectedDomain/"
+			} else {
+				BASE_URL
+			}
+			webView.loadUrl(url)
 		}
+		
+		// Check session expiry on startup
+		if (checkSessionExpiry()) {
+			return
+		}
+		
+		// Update activity time
+		updateLastActivityTime()
 
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
 			requestNotificationsPermissionIfNeeded()
@@ -2346,7 +2663,7 @@ class MainActivity : ComponentActivity() {
 
 	private fun createSettingsButton(): android.widget.ImageButton {
 		val settingsButton = android.widget.ImageButton(this)
-		settingsButton.visibility = android.view.View.GONE
+		settingsButton.visibility = android.view.View.VISIBLE // Make visible
 		val layoutParams = android.widget.RelativeLayout.LayoutParams(
 			android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT,
 			android.widget.RelativeLayout.LayoutParams.WRAP_CONTENT
@@ -2377,18 +2694,201 @@ class MainActivity : ComponentActivity() {
 			settingsButton.background = rippleDrawable
 		}
 		
-		// Add click listener
-		settingsButton.setOnClickListener {
-			showPrinterSettingsPopup()
+		// Make button draggable
+		var xDelta = 0f
+		var yDelta = 0f
+		settingsButton.setOnTouchListener { view, event ->
+			when (event.action) {
+				android.view.MotionEvent.ACTION_DOWN -> {
+					xDelta = view.x - event.rawX
+					yDelta = view.y - event.rawY
+					true
+				}
+				android.view.MotionEvent.ACTION_MOVE -> {
+					val newX = event.rawX + xDelta
+					val newY = event.rawY + yDelta
+					
+					// Constrain to screen bounds
+					val maxX = (view.parent as View).width - view.width
+					val maxY = (view.parent as View).height - view.height
+					
+					view.x = newX.coerceIn(0f, maxX.toFloat())
+					view.y = newY.coerceIn(0f, maxY.toFloat())
+					true
+				}
+				android.view.MotionEvent.ACTION_UP -> {
+					// Save position
+					prefs.edit().putFloat("settings_button_x", view.x).putFloat("settings_button_y", view.y).apply()
+					false
+				}
+				else -> false
+			}
 		}
 		
-		// Add long click listener for additional options
+		// Restore saved position
+		val savedX = prefs.getFloat("settings_button_x", -1f)
+		val savedY = prefs.getFloat("settings_button_y", -1f)
+		if (savedX >= 0 && savedY >= 0) {
+			settingsButton.x = savedX
+			settingsButton.y = savedY
+		}
+		
+		// Add click listener with Admin PIN protection
+		settingsButton.setOnClickListener {
+			showAdminPinDialog { authenticated ->
+				if (authenticated) {
+					showFloatingSettingsMenu()
+				}
+			}
+		}
+		
+		// Add long click listener for quick access (still requires PIN)
 		settingsButton.setOnLongClickListener {
-			showAdvancedSettingsMenu()
+			showAdminPinDialog { authenticated ->
+				if (authenticated) {
+					showAdvancedSettingsMenu()
+				}
+			}
 			true
 		}
 		
 		return settingsButton
+	}
+	
+	/**
+	 * Show Admin PIN dialog for protected settings access
+	 */
+	private fun showAdminPinDialog(onAuthenticated: (Boolean) -> Unit) {
+		val pinEditText = EditText(this)
+		pinEditText.inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+		pinEditText.hint = "Enter Admin PIN"
+		
+		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+			.setTitle("Admin Access Required")
+			.setMessage("Please enter Admin PIN to access settings")
+			.setView(pinEditText)
+			.setPositiveButton("OK") { _, _ ->
+				val enteredPin = pinEditText.text.toString()
+				val adminPin = prefs.getString("admin_pin", "1234") // Default PIN: 1234
+				
+				if (enteredPin == adminPin) {
+					onAuthenticated(true)
+				} else {
+					Toast.makeText(this, "Invalid PIN", Toast.LENGTH_SHORT).show()
+					onAuthenticated(false)
+				}
+			}
+			.setNegativeButton("Cancel") { _, _ ->
+				onAuthenticated(false)
+			}
+			.create()
+		
+		dialog.show()
+	}
+	
+	/**
+	 * Show floating settings menu with all options
+	 */
+	private fun showFloatingSettingsMenu() {
+		val options = arrayOf(
+			"Printer Settings",
+			"Change Domain",
+			"Export Settings",
+			"Logout / Reset App"
+		)
+		
+		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+			.setTitle("⚙️ Settings")
+			.setItems(options) { _, which ->
+				when (which) {
+					0 -> showPrinterSettingsPopup()
+					1 -> showChangeDomainDialog()
+					2 -> exportAllSettings()
+					3 -> showLogoutResetDialog()
+				}
+			}
+			.setNegativeButton("Cancel", null)
+			.create()
+		
+		dialog.show()
+	}
+	
+	/**
+	 * Show dialog to change domain
+	 */
+	private fun showChangeDomainDialog() {
+		val domainEditText = EditText(this)
+		domainEditText.hint = "Enter domain (e.g., outlet.elintpos.in)"
+		domainEditText.setText(prefs.getString("selected_domain", ""))
+		
+		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+			.setTitle("Change Domain")
+			.setMessage("Enter the new domain/outlet")
+			.setView(domainEditText)
+			.setPositiveButton("Save") { _, _ ->
+				val newDomain = domainEditText.text.toString().trim()
+				if (newDomain.isNotEmpty()) {
+					prefs.edit().putString("selected_domain", newDomain).apply()
+					
+					// Reload WebView with new domain
+					val url = if (newDomain.startsWith("http")) newDomain else "https://$newDomain/"
+					webView.loadUrl(url)
+					
+					Toast.makeText(this, "Domain changed. Reloading...", Toast.LENGTH_SHORT).show()
+				}
+			}
+			.setNegativeButton("Cancel", null)
+			.create()
+		
+		dialog.show()
+	}
+	
+	/**
+	 * Export all settings to JSON
+	 */
+	private fun exportAllSettings() {
+		try {
+			val settingsJson = org.json.JSONObject().apply {
+				put("customer_name", prefs.getString("customer_name", ""))
+				put("mobile_number", prefs.getString("mobile_number", ""))
+				put("selected_domain", prefs.getString("selected_domain", ""))
+				put("selected_domain_name", prefs.getString("selected_domain_name", ""))
+				put("footer_text", prefs.getString("footer_text", ""))
+				put("printer_profiles", printerConfigManager.exportProfiles())
+				put("exported_at", System.currentTimeMillis())
+			}
+			
+			// Save to SharedPreferences as backup
+			prefs.edit().putString("settings_backup_json", settingsJson.toString()).apply()
+			
+			Toast.makeText(this, "Settings exported successfully!", Toast.LENGTH_SHORT).show()
+		} catch (e: Exception) {
+			Toast.makeText(this, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+		}
+	}
+	
+	/**
+	 * Show logout/reset app dialog
+	 */
+	private fun showLogoutResetDialog() {
+		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+			.setTitle("Logout / Reset App")
+			.setMessage("This will clear all settings and return to initial setup. Are you sure?")
+			.setPositiveButton("Yes, Reset") { _, _ ->
+				// Clear all settings
+				prefs.edit().clear().apply()
+				printerConfigManager.clearAllProfiles()
+				
+				// Navigate to InitialSetupActivity
+				val intent = Intent(this, InitialSetupActivity::class.java)
+				intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+				startActivity(intent)
+				finish()
+			}
+			.setNegativeButton("Cancel", null)
+			.create()
+		
+		dialog.show()
 	}
 
 	private fun showAdvancedSettingsMenu() {
@@ -2656,115 +3156,13 @@ class MainActivity : ComponentActivity() {
 				================================
 			""".trimIndent()
 			
-			// Apply settings and print
-			defaultPrintConfig = PrintConfig(
-				leftMargin = 0,
-				rightMargin = 0,
-				lineSpacing = lineSpacing,
-				widthMul = 0,
-				heightMul = 0,
-				pageWidthDots = paperWidth,
-				linesPerPage = 0
-			)
+			// Use unified printer handler - automatically uses configured printer SDK
+			val result = unifiedPrinterHandler.print(testText, "auto")
 			
-			// Try to print using the existing print methods
-			val result = try {
-				// Check for connected printers in order of preference
-				when {
-					// Try USB printer first (most common for POS)
-					isUsbConnected && usbPrinter != null -> {
-						usbPrinter!!.printText(
-							testText,
-							leftMarginDots = defaultPrintConfig.leftMargin,
-							rightMarginDots = defaultPrintConfig.rightMargin,
-							lineSpacing = defaultPrintConfig.lineSpacing,
-							widthMultiplier = defaultPrintConfig.widthMul,
-							heightMultiplier = defaultPrintConfig.heightMul,
-							pageWidthDots = defaultPrintConfig.pageWidthDots,
-							linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
-						)
-						"{\"ok\":true}"
-					}
-					// Try Bluetooth printer
-					isBtConnected && escPosPrinter != null -> {
-						escPosPrinter!!.printText(
-							testText,
-							leftMarginDots = defaultPrintConfig.leftMargin,
-							rightMarginDots = defaultPrintConfig.rightMargin,
-							lineSpacing = defaultPrintConfig.lineSpacing,
-							widthMultiplier = defaultPrintConfig.widthMul,
-							heightMultiplier = defaultPrintConfig.heightMul,
-							pageWidthDots = defaultPrintConfig.pageWidthDots,
-							linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
-						)
-						"{\"ok\":true}"
-					}
-					// Try LAN printer
-					isLanConnected && lanPrinter != null -> {
-						lanPrinter!!.printText(
-							testText,
-							leftMarginDots = defaultPrintConfig.leftMargin,
-							rightMarginDots = defaultPrintConfig.rightMargin,
-							lineSpacing = defaultPrintConfig.lineSpacing,
-							widthMultiplier = defaultPrintConfig.widthMul,
-							heightMultiplier = defaultPrintConfig.heightMul,
-							pageWidthDots = defaultPrintConfig.pageWidthDots,
-							linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
-						)
-						"{\"ok\":true}"
-					}
-					// Try to auto-detect and connect USB printer
-					else -> {
-						try {
-							// Try to find and connect USB printer automatically
-							val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
-							val deviceList = usbManager.deviceList
-							val usbDevice = deviceList.values.firstOrNull { device ->
-								// Look for common printer vendor IDs
-								val vid = device.vendorId
-								vid == 0x04E8 || vid == 0x04B8 || vid == 0x04F9 || vid == 0x0FE6 || vid == 0x154F
-							}
-							
-							if (usbDevice != null) {
-								usbPrinter?.close()
-								usbPrinter = UsbEscPosPrinter(this)
-								usbPrinter!!.connect(usbDevice)
-								isUsbConnected = true
-								
-								usbPrinter!!.printText(
-									testText,
-									leftMarginDots = defaultPrintConfig.leftMargin,
-									rightMarginDots = defaultPrintConfig.rightMargin,
-									lineSpacing = defaultPrintConfig.lineSpacing,
-									widthMultiplier = defaultPrintConfig.widthMul,
-									heightMultiplier = defaultPrintConfig.heightMul,
-									pageWidthDots = defaultPrintConfig.pageWidthDots,
-									linesPerPage = defaultPrintConfig.linesPerPage.takeIf { it > 0 }
-								)
-								"{\"ok\":true}"
-							} else {
-								"{\"ok\":false,\"msg\":\"No printer connected. Please connect USB, Bluetooth, or LAN printer first.\"}"
-							}
-						} catch (e: Exception) {
-							"{\"ok\":false,\"msg\":\"No printer connected. Please connect USB, Bluetooth, or LAN printer first. Error: ${e.message}\"}"
-						}
-					}
-				}
-			} catch (e: Exception) {
-				"{\"ok\":false,\"msg\":\"Print error: ${e.message}\"}"
-			}
-			
-			if (result.contains("\"ok\":true")) {
+			if (result.success) {
 				Toast.makeText(this, "Test print sent successfully!", Toast.LENGTH_SHORT).show()
 			} else {
-				val errorMsg = if (result.contains("\"msg\":")) {
-					val start = result.indexOf("\"msg\":\"") + 7
-					val end = result.indexOf("\"", start)
-					if (end > start) result.substring(start, end) else "Unknown error"
-				} else {
-					"Check printer connection and try again"
-				}
-				Toast.makeText(this, "Print failed: $errorMsg", Toast.LENGTH_LONG).show()
+				Toast.makeText(this, "Print failed: ${result.message}", Toast.LENGTH_LONG).show()
 			}
 		} catch (e: Exception) {
 			Toast.makeText(this, "Test print error: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -2909,18 +3307,25 @@ class MainActivity : ComponentActivity() {
 								},
 								status: function(){ return ElintPOSNative.getPrinterStatus(); }
 							};
-							// Override window.print to open Android system print dialog only when user clicks Print
+							// Override window.print to use direct print or system dialog based on settings
 							try {
 								window.print = function(){
 									try {
 										if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.systemPrint) {
+											// systemPrint will check the preference and either:
+											// - Direct print using configured printer with configured paper size (if checkbox unchecked)
+											// - Show Android print dialog (if checkbox checked)
 											ElintPOSNative.systemPrint('POS Print');
 											return true;
 										}
-									} catch(_) {}
+									} catch(e) {
+										console.error('Print error:', e);
+									}
 									return false;
 								};
-							} catch(_) {}
+							} catch(e) {
+								console.error('Failed to override window.print:', e);
+							}
 							// Force target=_blank links and window.open to stay in same WebView
 							try{ window.open = function(u){ try{ location.href = u; }catch(e){} return null; }; }catch(_){ }
 							try{

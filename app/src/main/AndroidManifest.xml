@@ -7,6 +7,7 @@
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 	<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 	<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+	<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 	<uses-permission android:name="android.permission.CAMERA" />
 	<!-- Microphone for audio capture / WebRTC -->
 	<uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -27,8 +28,13 @@
 	<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
 
 	<!-- Bluetooth for classic printers (XP-F800, ESC/POS) -->
-	<uses-permission android:name="android.permission.BLUETOOTH" />
-	<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+	<!-- Bluetooth (Android 11 and below) -->
+	<uses-permission 
+		android:name="android.permission.BLUETOOTH"
+		android:maxSdkVersion="30" />
+	<uses-permission 
+		android:name="android.permission.BLUETOOTH_ADMIN"
+		android:maxSdkVersion="30" />
 	<!-- Android 12+ runtime permissions -->
 	<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 	<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
@@ -53,11 +59,23 @@
 			android:name=".SplashActivity"
 			android:exported="true"
 			android:theme="@style/Theme.ElintPOS">
-			<intent-filter>
-				<action android:name="android.intent.action.MAIN" />
-				<category android:name="android.intent.category.LAUNCHER" />
-			</intent-filter>
-		</activity>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+		<activity
+			android:name=".SetupActivity"
+			android:exported="false"
+			android:theme="@style/Theme.ElintPOS"
+			android:screenOrientation="portrait" />
+
+		<activity
+			android:name=".InitialSetupActivity"
+			android:exported="false"
+			android:theme="@style/Theme.ElintPOS"
+			android:screenOrientation="portrait" />
 
 		<activity
 			android:name=".MainActivity"
@@ -73,8 +91,8 @@
 				<category android:name="android.intent.category.DEFAULT" />
 				<category android:name="android.intent.category.BROWSABLE" />
 
-				<data android:scheme="http" android:host="bendthetrend.elintpos.in" />
-				<data android:scheme="https" android:host="bendthetrend.elintpos.in" />
+				<data android:scheme="http" android:host="androidtesting.elintpos.in" />
+				<data android:scheme="https" android:host="androidtesting.elintpos.in" />
 
 			</intent-filter>
 

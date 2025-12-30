@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# AutoReplyPrint SDK
+-keep class com.caysn.autoreplyprint.** {*;}
+-keep class com.lvrenyang.** {*;}
+-keep class android.bluetooth.** {*;}
+-keep class android.hardware.usb.** {*;}

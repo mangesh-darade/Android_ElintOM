@@ -32,6 +32,14 @@ import java.util.Locale
 class ElintApp : Application() {
 
 	/**
+	 * AutoReplyPrint SDK instance
+	 * Initialized once when application starts
+	 */
+	val autoReplyPrint: com.elintpos.wrapper.printer.vendor.AutoReplyPrint by lazy {
+		com.elintpos.wrapper.printer.vendor.AutoReplyPrint(this)
+	}
+
+	/**
 	 * Called when the application is starting, before any activity, service, or receiver objects
 	 * have been created.
 	 * 
@@ -41,6 +49,11 @@ class ElintApp : Application() {
 		super.onCreate()
 		// Install crash handler to automatically restart app on fatal errors
 		installCrashRestartHandler()
+		
+		// Initialize AutoReplyPrint SDK if available
+		if (autoReplyPrint.isAvailable()) {
+			autoReplyPrint.initialize()
+		}
 	}
 
 	/**

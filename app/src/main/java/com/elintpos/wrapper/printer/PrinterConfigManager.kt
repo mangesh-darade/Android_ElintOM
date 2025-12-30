@@ -26,6 +26,7 @@ class PrinterConfigManager(private val context: Context) {
         const val TYPE_EPSON = "epson"
         const val TYPE_XPRINTER = "xprinter"
         const val TYPE_VENDOR = "vendor"
+        const val TYPE_AUTOREPLYPRINT = "autoreplyprint"
         
         // Paper sizes
         const val PAPER_58MM = 384
