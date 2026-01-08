@@ -17,7 +17,6 @@
             android:layout_height="wrap_content"
             android:text="Initial Setup" />
 
-        <!-- Customer & Domain Section -->
         <EditText
             android:id="@+id/customerNameEditText"
             android:layout_width="match_parent"
@@ -93,7 +92,6 @@
         <!-- Action Buttons -->
         <Button
             android:id="@+id/saveButton"
-            style="?android:attr/buttonBarButtonStyle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"

@@ -76,6 +76,7 @@ class InitialSetupActivity : ComponentActivity() {
     private lateinit var connectionTypeSpinner: Spinner
     private lateinit var printerModelSpinner: Spinner
     private lateinit var paperSizeSpinner: Spinner
+    private lateinit var lineSpacingSpinner: Spinner
     private lateinit var cutModeSpinner: Spinner
     private lateinit var printModeSpinner: Spinner
     private lateinit var footerTextEditText: EditText
@@ -99,6 +100,7 @@ class InitialSetupActivity : ComponentActivity() {
     private var selectedConnectionType: String = "bluetooth"
     private var selectedModel: String = "XP-80"
     private var selectedPaperSize: String = "80mm"
+    private var selectedLineSpacing: Int = 30
     private var selectedCutMode: String = "full"
     private var selectedPrintMode: String = "normal"
     
@@ -118,7 +120,15 @@ class InitialSetupActivity : ComponentActivity() {
             AutoReplyPrint(this)
         }
     }
-    private val paperSizes = listOf("58mm", "80mm", "112mm")
+    // Available paper sizes for initial printer setup
+    // Added 90mm option for XP-90 and similar wide-format printers.
+    private val paperSizes = listOf("58mm", "80mm", "90mm", "112mm")
+    // Human-readable line spacing options mapped to ESC/POS dot values
+    private val lineSpacingOptions = listOf(
+        "Tight (24)" to 24,
+        "Normal (30)" to 30,
+        "Wide (36)" to 36
+    )
     private val cutModes = listOf("Full Cut", "Partial Cut", "No Cut")
     private val printModes = listOf("Normal", "High Quality", "Draft")
 
@@ -132,6 +142,14 @@ class InitialSetupActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // HIDE/BLOCK: Immediately close this activity - do not show Initial Setup page
+        // Redirect to MainActivity instead
+        val intent = Intent(this, MainActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        finish()
+        return
         setContentView(R.layout.activity_initial_setup)
 
         // Initialize managers
@@ -161,6 +179,12 @@ class InitialSetupActivity : ComponentActivity() {
         setupRecyclerView()
         setupButtons()
         checkInternetStatus()
+        
+        // Show printer settings container by default so user can see it when scrolling
+        printerSettingsContainer.visibility = View.VISIBLE
+        
+        // Initially disable Save button - will be enabled when all required fields are filled
+        saveAndContinueButton.isEnabled = false
 
         // Check if setup is already completed
         if (isSetupCompleted()) {
@@ -174,6 +198,23 @@ class InitialSetupActivity : ComponentActivity() {
         mobileNumberEditText = findViewById(R.id.mobileNumberEditText)
         fetchDomainButton = findViewById(R.id.fetchDomainButton)
         domainStatusText = findViewById(R.id.domainStatusText)
+        
+        // Add TextWatchers to enable/disable Save button
+        customerNameEditText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                checkSetupComplete()
+            }
+        })
+        
+        mobileNumberEditText.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                checkSetupComplete()
+            }
+        })
 
         // Domain Selection
         domainSelectionContainer = findViewById(R.id.domainSelectionContainer)
@@ -184,6 +225,7 @@ class InitialSetupActivity : ComponentActivity() {
         connectionTypeSpinner = findViewById(R.id.connectionTypeSpinner)
         printerModelSpinner = findViewById(R.id.printerModelSpinner)
         paperSizeSpinner = findViewById(R.id.paperSizeSpinner)
+        lineSpacingSpinner = findViewById(R.id.lineSpacingSpinner)
         cutModeSpinner = findViewById(R.id.cutModeSpinner)
         printModeSpinner = findViewById(R.id.printModeSpinner)
         footerTextEditText = findViewById(R.id.footerTextEditText)
@@ -228,6 +270,18 @@ class InitialSetupActivity : ComponentActivity() {
         paperSizeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 selectedPaperSize = paperSizes[position]
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        // Line Spacing
+        val lineLabels = lineSpacingOptions.map { it.first }
+        val lineAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, lineLabels)
+        lineAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        lineSpacingSpinner.adapter = lineAdapter
+        lineSpacingSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                selectedLineSpacing = lineSpacingOptions[position].second
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -280,6 +334,9 @@ class InitialSetupActivity : ComponentActivity() {
             }
             fetchDomains(mobileNumber)
         }
+        
+        // Initially disable Save button
+        saveAndContinueButton.isEnabled = false
 
         // Refresh Printer Button
         refreshPrinterButton.setOnClickListener {
@@ -353,6 +410,7 @@ class InitialSetupActivity : ComponentActivity() {
                 domainStatusText.setTextColor(ContextCompat.getColor(this@InitialSetupActivity, android.R.color.holo_red_dark))
             } finally {
                 fetchDomainButton.isEnabled = true
+                checkSetupComplete() // Check after fetching domains
             }
         }
     }
@@ -367,8 +425,19 @@ class InitialSetupActivity : ComponentActivity() {
                 selectedDomain = domains[position]
                 checkSetupComplete()
             }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                selectedDomain = null
+                checkSetupComplete()
+            }
         }
+        
+        // If domains are available and first domain should be auto-selected, select it
+        if (domains.isNotEmpty() && domainSpinner.selectedItemPosition == -1) {
+            domainSpinner.setSelection(0)
+        }
+        
+        // Check setup complete after spinner is set up
+        checkSetupComplete()
     }
 
     @SuppressLint("MissingPermission")
@@ -777,6 +846,8 @@ class InitialSetupActivity : ComponentActivity() {
 
             val paperWidth = when (selectedPaperSize) {
                 "58mm" -> PrinterConfigManager.PAPER_58MM
+                "80mm" -> PrinterConfigManager.PAPER_80MM
+                "90mm" -> PrinterConfigManager.PAPER_90MM
                 "112mm" -> PrinterConfigManager.PAPER_112MM
                 else -> PrinterConfigManager.PAPER_80MM
             }
@@ -792,6 +863,7 @@ class InitialSetupActivity : ComponentActivity() {
                 name = "${printer.name} (${selectedModel})",
                 enabled = true,
                 paperWidth = paperWidth,
+                lineSpacing = selectedLineSpacing,
                 connectionParams = connectionParams,
                 advancedSettings = advancedSettings,
                 isDefault = true

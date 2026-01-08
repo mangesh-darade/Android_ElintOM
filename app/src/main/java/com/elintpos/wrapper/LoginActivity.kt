@@ -25,24 +25,15 @@ class LoginActivity : ComponentActivity() {
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // For now, we'll navigate to the printer setup after any page loads.
-                // In a real-world scenario, you'd want to check for a specific URL or a JavaScript interface signal.
-                navigateToPrinterSetup()
             }
         }
 
         loginButton.setOnClickListener {
-            val subdomain = subdomainEditText.text.toString()
+            val subdomain = subdomainEditText.text.toString().trim()
             if (subdomain.isNotEmpty()) {
-                val url = "https://" + subdomain + ".elintpos.in/"
+                val url = "https://$subdomain.elintpos.in/"
                 webView.loadUrl(url)
             }
         }
-    }
-
-    private fun navigateToPrinterSetup() {
-        val intent = Intent(this, PrinterSetupActivity::class.java)
-        startActivity(intent)
-        finish()
     }
 }

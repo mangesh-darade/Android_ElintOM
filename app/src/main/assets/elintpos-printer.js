@@ -8,6 +8,12 @@ class ElintPOSPrinter {
     constructor() {
         this.isAvailable = typeof ElintPOSNative !== 'undefined';
         this.selectedPrinter = null;
+
+        // Control whether floating on-screen buttons (print / settings)
+        // should be shown on top of the web app. In the Android wrapper
+        // these buttons are usually not needed, so we disable them by default.
+        this.enableFloatingButtons = false;
+
         this.printSettings = {
             paperWidth: 384,
             lineSpacing: 30,
@@ -23,10 +29,15 @@ class ElintPOSPrinter {
      * Initialize printer integration by adding print buttons and event listeners
      */
     initializePrinterIntegration() {
-        // Add print button to the page if it doesn't exist
-        this.addPrintButton();
-        // Add settings button to the page if it doesn't exist
-        this.addSettingsButton();
+        // Optionally add floating print / settings buttons.
+        // Because enableFloatingButtons is false by default, these
+        // icons (purple wrench / print bubble) will be hidden.
+        if (this.enableFloatingButtons) {
+            // Add print button to the page if it doesn't exist
+            this.addPrintButton();
+            // Add settings button to the page if it doesn't exist
+            this.addSettingsButton();
+        }
         
         // Override the default print function
         this.overridePrintFunction();
@@ -169,25 +180,62 @@ class ElintPOSPrinter {
 
     /**
      * Override the default print function to use ElintPOS printer
+     * 
+     * When window.print() is called:
+     * - If "Enabled Printer Dialog" is checked → shows Android print dialog
+     * - If "Enabled Printer Dialog" is NOT checked → auto prints directly
      */
     overridePrintFunction() {
         const originalPrint = window.print;
         
         window.print = () => {
-            // Try to show native Android print dialog first
-            if (this.isAvailable && typeof ElintPOSNative.showNativePrintDialog === 'function') {
+            console.log('window.print() called - intercepting for ElintPOS printer');
+            
+            if (!this.isAvailable) {
+                console.warn('ElintPOSNative not available, using original window.print()');
+                originalPrint.call(window);
+                return;
+            }
+            
+            // Check if print dialog is enabled
+            let showDialog = false;
+            try {
+                if (typeof ElintPOSNative.getShowPrintDialog === 'function') {
+                    showDialog = ElintPOSNative.getShowPrintDialog();
+                    console.log('Print dialog enabled:', showDialog);
+                }
+            } catch (e) {
+                console.log('Error checking print dialog preference:', e);
+            }
+            
+            // If print dialog is enabled, show native Android print dialog
+            if (showDialog && typeof ElintPOSNative.showNativePrintDialog === 'function') {
                 try {
+                    console.log('Showing native Android print dialog...');
                     const result = ElintPOSNative.showNativePrintDialog();
-                    const response = JSON.parse(result);
+                    const response = JSON.parse(result || '{}');
                     if (response.ok) {
+                        console.log('Native print dialog opened successfully');
                         return; // Native dialog opened successfully
+                    } else {
+                        console.warn('Native print dialog failed:', response.msg);
                     }
                 } catch (e) {
-                    console.log('Native print dialog failed, falling back to custom selector:', e);
+                    console.error('Error showing native print dialog:', e);
                 }
             }
             
-            // Fallback to custom printer selector
+            // If print dialog is disabled or failed, print directly
+            if (!showDialog) {
+                console.log('Print dialog disabled - printing directly to configured printer');
+                // Get page content and print directly
+                const content = this.getPageContent();
+                this.printContent(content, 'auto');
+                return;
+            }
+            
+            // Fallback: try custom printer selector if native dialog failed
+            console.log('Falling back to custom printer selector');
             this.showPrinterSelector();
         };
     }
@@ -376,6 +424,9 @@ class ElintPOSPrinter {
 
     /**
      * Print content directly
+     * 
+     * If "Enabled Printer Dialog" is checked, this will automatically show
+     * the Android print dialog. Otherwise, it prints directly to configured printer.
      */
     printContent(content, printerType = 'auto') {
         if (!this.isAvailable) {
@@ -384,18 +435,104 @@ class ElintPOSPrinter {
         }
 
         try {
+            // Check if print dialog is enabled
+            let showDialog = false;
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.getShowPrintDialog === 'function') {
+                try {
+                    showDialog = ElintPOSNative.getShowPrintDialog();
+                } catch (e) {
+                    console.log('Error checking print dialog preference:', e);
+                }
+            }
+            
+            // If print dialog is enabled, the Android side will automatically show it
+            // when printWebContent is called
             const result = ElintPOSNative.printWebContent(content, printerType);
             const response = JSON.parse(result);
             
             if (response.ok) {
                 // Show success message
-                this.showToast('Print job sent successfully!');
+                if (showDialog) {
+                    // Dialog was shown, user will select printer there
+                    this.showToast('Print dialog opened');
+                } else {
+                    // Direct print was used
+                    this.showToast('Print job sent successfully!');
+                }
             } else {
                 alert('Print failed: ' + response.msg);
             }
         } catch (e) {
             console.error('Print error:', e);
             alert('Print error: ' + e.message);
+        }
+    }
+    
+    /**
+     * Check if print dialog is enabled
+     * 
+     * @return {boolean} true if print dialog is enabled, false otherwise
+     */
+    isPrintDialogEnabled() {
+        if (!this.isAvailable) {
+            return false;
+        }
+        
+        try {
+            if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.getShowPrintDialog === 'function') {
+                return ElintPOSNative.getShowPrintDialog();
+            }
+        } catch (e) {
+            console.error('Error checking print dialog preference:', e);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Automatically trigger print on form submit
+     * 
+     * This method checks Android settings:
+     * - If "Enabled Printer Dialog" is checked → shows print dialog
+     * - If "Enabled Printer Dialog" is NOT checked → auto prints directly
+     * 
+     * @param {HTMLElement|string} elementOrSelector - Element to print or selector string
+     * @param {Function} callback - Optional callback after print is triggered
+     */
+    autoPrintOnSubmit(elementOrSelector, callback) {
+        // Get the content to print
+        let content = '';
+        if (typeof elementOrSelector === 'string') {
+            const element = document.querySelector(elementOrSelector);
+            if (element) {
+                content = this.extractElementContent(element);
+            } else {
+                content = document.body.innerText || document.body.textContent;
+            }
+        } else if (elementOrSelector) {
+            content = this.extractElementContent(elementOrSelector);
+        } else {
+            // Default: print the current page content
+            content = this.getPageContent();
+        }
+        
+        // Check Android settings for print dialog preference
+        let showDialog = false;
+        if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.getShowPrintDialog === 'function') {
+            try {
+                showDialog = ElintPOSNative.getShowPrintDialog();
+            } catch (e) {
+                console.log('Error checking print dialog preference:', e);
+            }
+        }
+        
+        // Trigger print - Android side will check preference and either:
+        // - Show dialog if enabled
+        // - Direct print if disabled
+        this.printContent(content, 'auto');
+        
+        if (callback) {
+            callback(true, showDialog ? 'Print dialog will be shown' : 'Auto printing directly');
         }
     }
 
@@ -1262,6 +1399,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize ElintPOS Printer integration
     window.elintposPrinter = new ElintPOSPrinter();
     
+    // Auto-print on form submit if print dialog is enabled
+    // This intercepts submit buttons and automatically triggers print dialog
+    setupAutoPrintOnSubmit();
+    
     // Add some styling for better integration
     const style = document.createElement('style');
     style.textContent = `
@@ -1287,7 +1428,228 @@ document.addEventListener('DOMContentLoaded', function() {
     document.head.appendChild(style);
 });
 
+/**
+ * Setup automatic print on form submit
+ * 
+ * This function intercepts form submissions and checkout buttons
+ * to automatically trigger printing. The Android side will check
+ * the "Enabled Printer Dialog" setting and either:
+ * - Show print dialog if checkbox is checked
+ * - Auto print directly if checkbox is NOT checked
+ */
+function setupAutoPrintOnSubmit() {
+    // Wait a bit for the page to fully load
+    setTimeout(() => {
+        if (!window.elintposPrinter) {
+            return; // Printer not available
+        }
+        
+        // Intercept form submissions
+        const forms = document.querySelectorAll('form');
+        forms.forEach(form => {
+            form.addEventListener('submit', function(e) {
+                // Check if this is a checkout/submit form
+                const formAction = form.action || '';
+                const formId = form.id || '';
+                const formClass = form.className || '';
+                
+                // Check for checkout-related keywords
+                const isCheckoutForm = 
+                    formAction.includes('checkout') ||
+                    formAction.includes('submit') ||
+                    formId.includes('checkout') ||
+                    formId.includes('submit') ||
+                    formClass.includes('checkout') ||
+                    formClass.includes('submit') ||
+                    form.querySelector('input[type="submit"][value*="checkout" i]') ||
+                    form.querySelector('input[type="submit"][value*="submit" i]') ||
+                    form.querySelector('button[type="submit"]:contains("checkout")') ||
+                    form.querySelector('button[type="submit"]:contains("submit")');
+                
+                if (isCheckoutForm) {
+                    // Small delay to allow form submission to process
+                    setTimeout(() => {
+                        // Try to find invoice/receipt content to print
+                        const invoiceContent = findInvoiceContent();
+                        if (invoiceContent) {
+                            window.elintposPrinter.autoPrintOnSubmit(invoiceContent);
+                        } else {
+                            // Fallback: print the page content
+                            window.elintposPrinter.autoPrintOnSubmit();
+                        }
+                    }, 500);
+                }
+            });
+        });
+        
+        // Intercept submit buttons (including those outside forms)
+        // Expanded selectors to catch webprint, print, submit buttons, cmdprint buttons
+        const submitButtons = document.querySelectorAll(
+            'button[type="submit"], input[type="submit"], button.submit, .btn-submit, [data-submit], ' +
+            'button.print, .btn-print, [data-print], ' +
+            'button.webprint, .btn-webprint, [data-webprint], ' +
+            'button.web-print, .btn-web-print, [data-web-print], ' +
+            'button.web_print, .btn-web_print, [data-web_print], ' +
+            'button.cmdprint, .cmdprint, [name="cmdprint"], ' +
+            'a[id*="web_print" i], a[id*="webprint" i], ' +
+            '[id*="print" i], [id*="webprint" i], [class*="print" i], [class*="webprint" i], [class*="cmdprint" i]'
+        );
+        submitButtons.forEach(button => {
+            // Skip if already attached
+            if (button.dataset.autoPrintAttached === 'true') {
+                return;
+            }
+            button.dataset.autoPrintAttached = 'true';
+            
+            button.addEventListener('click', function(e) {
+                const buttonText = (button.textContent || button.value || button.innerText || '').toLowerCase();
+                const buttonClass = (button.className || '').toLowerCase();
+                const buttonId = (button.id || '').toLowerCase();
+                const buttonName = (button.name || '').toLowerCase();
+                
+                // Check if this is a checkout/submit/print/webprint/cmdprint button
+                const isCheckoutButton = 
+                    buttonText.includes('checkout') ||
+                    buttonText.includes('submit') ||
+                    buttonText.includes('complete') ||
+                    buttonText.includes('finish') ||
+                    buttonText.includes('print') ||
+                    buttonText.includes('webprint') ||
+                    buttonText.includes('web-print') ||
+                    buttonClass.includes('checkout') ||
+                    buttonClass.includes('submit') ||
+                    buttonClass.includes('print') ||
+                    buttonClass.includes('webprint') ||
+                    buttonClass.includes('web-print') ||
+                    buttonClass.includes('cmdprint') ||
+                    buttonId.includes('checkout') ||
+                    buttonId.includes('submit') ||
+                    buttonId.includes('print') ||
+                    buttonId.includes('webprint') ||
+                    buttonId.includes('web-print') ||
+                    buttonId.includes('web_print') ||
+                    buttonName.includes('print') ||
+                    buttonName.includes('webprint') ||
+                    buttonName.includes('cmdprint');
+                
+                if (isCheckoutButton) {
+                    console.log('Auto-print triggered by button:', buttonText || buttonId || buttonClass);
+                    // Small delay to allow button action to process
+                    setTimeout(() => {
+                        // Try to find invoice/receipt content to print
+                        const invoiceContent = findInvoiceContent();
+                        if (invoiceContent) {
+                            window.elintposPrinter.autoPrintOnSubmit(invoiceContent);
+                        } else {
+                            // Fallback: print the page content
+                            window.elintposPrinter.autoPrintOnSubmit();
+                        }
+                    }, 500);
+                }
+            });
+        });
+        
+        // Also monitor for dynamically added submit buttons
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const newSubmitButtons = node.querySelectorAll?.(
+                            'button[type="submit"], input[type="submit"], button.submit, .btn-submit, ' +
+                            'button.print, .btn-print, [data-print], ' +
+                            'button.webprint, .btn-webprint, [data-webprint], ' +
+                            'button.web-print, .btn-web-print, [data-web-print], ' +
+                            'button.cmdprint, .cmdprint, [name="cmdprint"], ' +
+                            'a[id*="web_print" i], a[id*="webprint" i], ' +
+                            '[id*="print" i], [id*="webprint" i], [class*="print" i], [class*="webprint" i], [class*="cmdprint" i]'
+                        );
+                        if (newSubmitButtons) {
+                            newSubmitButtons.forEach(button => {
+                                if (!button.dataset.autoPrintAttached) {
+                                    button.dataset.autoPrintAttached = 'true';
+                                    const buttonText = (button.textContent || button.value || button.innerText || '').toLowerCase();
+                                    const buttonClass = (button.className || '').toLowerCase();
+                                    const buttonId = (button.id || '').toLowerCase();
+                                    const buttonName = (button.name || '').toLowerCase();
+                                    
+                                    // Check if this is a print-related button
+                                    const isPrintButton = 
+                                        buttonText.includes('print') ||
+                                        buttonText.includes('webprint') ||
+                                        buttonClass.includes('print') ||
+                                        buttonClass.includes('webprint') ||
+                                        buttonClass.includes('cmdprint') ||
+                                        buttonId.includes('print') ||
+                                        buttonId.includes('webprint') ||
+                                        buttonId.includes('web_print') ||
+                                        buttonName.includes('print') ||
+                                        buttonName.includes('webprint') ||
+                                        buttonName.includes('cmdprint');
+                                    
+                                    if (isPrintButton) {
+                                        button.addEventListener('click', function() {
+                                            if (window.elintposPrinter) {
+                                                console.log('Auto-print triggered by dynamically added button:', buttonText || buttonId || buttonClass);
+                                                setTimeout(() => {
+                                                    const invoiceContent = findInvoiceContent();
+                                                    window.elintposPrinter.autoPrintOnSubmit(
+                                                        invoiceContent || undefined
+                                                    );
+                                                }, 500);
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+        });
+        
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }, 1000); // Wait 1 second for page to fully load
+}
+
+/**
+ * Find invoice/receipt content on the page
+ * 
+ * Looks for common invoice/receipt elements and returns the best match
+ */
+function findInvoiceContent() {
+    // Common selectors for invoice/receipt content
+    const selectors = [
+        '.invoice',
+        '.receipt',
+        '.checkout-summary',
+        '.order-summary',
+        '.invoice-content',
+        '.receipt-content',
+        '#invoice',
+        '#receipt',
+        '[data-invoice]',
+        '[data-receipt]',
+        '.modal-body .invoice',
+        '.modal-body .receipt',
+        '.print-content',
+        '.printable-content'
+    ];
+    
+    for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        if (element && element.offsetParent !== null) {
+            return element; // Return first visible element
+        }
+    }
+    
+    return null;
+}
+
 // Export for use in other scripts
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = ElintPOSPrinter;
 }
+

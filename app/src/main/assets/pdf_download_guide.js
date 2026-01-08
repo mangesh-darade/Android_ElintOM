@@ -233,6 +233,7 @@ function exportInventoryReportAsPdf(inventoryData) {
  * Generate invoice HTML content
  */
 function generateInvoiceHtml(invoiceData) {
+    alert("sdad")
     return `
         <!DOCTYPE html>
         <html>

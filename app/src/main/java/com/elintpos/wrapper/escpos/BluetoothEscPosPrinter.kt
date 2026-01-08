@@ -237,6 +237,53 @@ class BluetoothEscPosPrinter(private val context: Context) {
 	}
 
 	/**
+	 * Print bitmap image using ESC/POS commands
+	 * 
+	 * @param bitmap The bitmap to print
+	 * @param width Target width in dots (e.g., 384 for 58mm, 576 for 80mm)
+	 */
+	@Throws(IOException::class)
+	fun printImage(bitmap: android.graphics.Bitmap, width: Int = 384) {
+		val os = output ?: throw IOException("Not connected")
+		
+		// Scale bitmap to target width
+		val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
+		val height = (width * aspectRatio).toInt()
+		val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
+		
+		// Convert to 1-bit bitmap
+		val widthBytes = (width + 7) / 8
+		val imageData = ByteArray(widthBytes * height)
+		
+		for (y in 0 until height) {
+			for (x in 0 until width) {
+				val pixel = scaledBitmap.getPixel(x, y)
+				val gray = (android.graphics.Color.red(pixel) + android.graphics.Color.green(pixel) + android.graphics.Color.blue(pixel)) / 3
+				if (gray < 128) { // Black pixel
+					val byteIndex = y * widthBytes + x / 8
+					val bitIndex = 7 - (x % 8)
+					imageData[byteIndex] = (imageData[byteIndex].toInt() or (1 shl bitIndex)).toByte()
+				}
+			}
+		}
+		
+		// Print image using ESC * command
+		os.write(byteArrayOf(0x1B, 0x40)) // Initialize
+		os.write(byteArrayOf(0x1B, 0x33, 0x18)) // Set line spacing
+		for (y in 0 until height) {
+			os.write(byteArrayOf(0x1B, 0x2A, 0x00, widthBytes.toByte(), (widthBytes and 0xFF).toByte()))
+			os.write(imageData, y * widthBytes, widthBytes)
+			os.write(byteArrayOf(0x0A)) // Line feed
+		}
+		os.write(byteArrayOf(0x1B, 0x33, 0x30)) // Reset line spacing
+		os.write(byteArrayOf(0x1B, 0x64, 0x02)) // Feed 2 lines
+		os.write(byteArrayOf(0x1D, 0x56, 0x42, 0x03)) // Cut paper
+		os.flush()
+		
+		scaledBitmap.recycle()
+	}
+
+	/**
 	 * Closes the Bluetooth connection and releases resources
 	 * 
 	 * Safe to call multiple times. Silently handles any errors during cleanup.

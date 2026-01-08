@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -27,6 +28,7 @@ import androidx.core.app.NotificationCompat
  * - Automatically brings app to foreground if backgrounded
  * - Shows persistent notification (required for foreground services)
  * - Sticky service (Android restarts it if killed)
+ * - On boot: Checks printer configuration and launches PrinterSetupActivity if not configured
  * 
  * Triggered By:
  * - BootReceiver on device boot
@@ -44,15 +46,29 @@ class StartupForegroundService : Service() {
     
     /** How often to check if app is in foreground (5 seconds) */
     private val MONITOR_INTERVAL_MS = 5000L // 5 seconds
+    
+    /** SharedPreferences to check printer configuration */
+    private val prefs: SharedPreferences by lazy {
+        getSharedPreferences("settings", Context.MODE_PRIVATE)
+    }
+    
+    /**
+     * Check if printer is configured
+     */
+    private fun isPrinterConfigured(): Boolean {
+        return prefs.getBoolean("printer_configured", false)
+    }
 
     /**
      * Called when the service is started
      * 
      * Flow:
      * 1. Start as foreground service (shows notification)
-     * 2. Immediately bring MainActivity to front
-     * 3. Set up monitoring loop to check app state every 5 seconds
-     * 4. Return START_STICKY so Android restarts service if killed
+     * 2. Check printer configuration
+     * 3. If printer NOT configured: Launch PrinterSetupActivity
+     * 4. If printer configured: Launch MainActivity
+     * 5. Set up monitoring loop to check app state every 5 seconds
+     * 6. Return START_STICKY so Android restarts service if killed
      * 
      * @param intent The Intent supplied to startService()
      * @param flags Additional data about the start request
@@ -63,15 +79,16 @@ class StartupForegroundService : Service() {
         // Start as foreground service (required for Android 8.0+)
         startAsForeground()
         
-        // Immediately bring the app to the front on startup
-        bringMainToFront()
+        // Check printer configuration and launch appropriate activity
+        bringAppToFront()
 
         // Create monitoring runnable that checks app state periodically
         monitorRunnable = Runnable {
             // Check if app is in foreground
             if (!isAppInForeground()) {
                 // App went to background - bring it back to front
-                bringMainToFront()
+                // Once printer is configured, always bring MainActivity
+                bringAppToFront()
             }
             // Reschedule the check after MONITOR_INTERVAL_MS
             handler.postDelayed(monitorRunnable, MONITOR_INTERVAL_MS)
@@ -126,7 +143,7 @@ class StartupForegroundService : Service() {
      * Notification Features:
      * - Low importance (IMPORTANCE_MIN) - minimal intrusion
      * - Ongoing (can't be dismissed by user)
-     * - Tapping opens MainActivity
+     * - Tapping opens appropriate activity (PrinterSetupActivity or MainActivity)
      * 
      * @see <a href="https://developer.android.com/guide/components/foreground-services">Foreground Services</a>
      */
@@ -140,11 +157,18 @@ class StartupForegroundService : Service() {
             nm.createNotificationChannel(channel)
         }
         
-        // Create PendingIntent to open MainActivity when notification is tapped
+        // Determine which activity to open based on printer configuration
+        val targetActivity = if (isPrinterConfigured()) {
+            MainActivity::class.java
+        } else {
+            PrinterSetupActivity::class.java
+        }
+        
+        // Create PendingIntent to open appropriate activity when notification is tapped
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            Intent(this, targetActivity).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
         )
         
@@ -162,16 +186,26 @@ class StartupForegroundService : Service() {
     }
 
     /**
-     * Brings MainActivity to the foreground
+     * Brings the appropriate activity to the foreground based on printer configuration
+     * 
+     * Flow:
+     * - If printer NOT configured: Launch PrinterSetupActivity
+     * - If printer configured: Launch MainActivity
      * 
      * Flags:
      * - FLAG_ACTIVITY_NEW_TASK: Start activity in a new task
-     * - FLAG_ACTIVITY_CLEAR_TOP: Clear all activities above MainActivity
+     * - FLAG_ACTIVITY_CLEAR_TOP: Clear all activities above target activity
      * 
-     * Effect: MainActivity becomes visible and focused
+     * Effect: Appropriate activity becomes visible and focused
      */
-    private fun bringMainToFront() {
-        val launch = Intent(this, MainActivity::class.java)
+    private fun bringAppToFront() {
+        val targetActivity = if (isPrinterConfigured()) {
+            MainActivity::class.java
+        } else {
+            PrinterSetupActivity::class.java
+        }
+        
+        val launch = Intent(this, targetActivity)
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         startActivity(launch)
     }

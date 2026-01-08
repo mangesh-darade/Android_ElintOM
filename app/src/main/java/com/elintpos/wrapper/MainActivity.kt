@@ -3,131 +3,105 @@
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.net.http.SslError
-import android.webkit.ConsoleMessage
+import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
-import android.webkit.URLUtil
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.print.PrintManager
-import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.widget.Toast
 import android.widget.EditText
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
-import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.elintpos.wrapper.escpos.BluetoothEscPosPrinter
+import com.elintpos.wrapper.escpos.LanEscPosPrinter
+import com.elintpos.wrapper.escpos.ReceiptFormatter
+import com.elintpos.wrapper.escpos.UsbEscPosPrinter
+import com.elintpos.wrapper.export.CsvExporter
+import com.elintpos.wrapper.pdf.PdfDownloader
+import com.elintpos.wrapper.printer.PrinterConfigManager
+import com.elintpos.wrapper.printer.PrinterTester
+import com.elintpos.wrapper.printer.vendor.AutoReplyPrint
+import com.elintpos.wrapper.printer.vendor.EpsonPrinter
+import com.elintpos.wrapper.printer.vendor.VendorPrinter
+import com.elintpos.wrapper.printer.vendor.XPrinter
+import com.elintpos.wrapper.sdk.SdkDownloader
 import java.io.File
+import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import org.json.JSONArray
-import org.json.JSONObject
-import com.elintpos.wrapper.escpos.BluetoothEscPosPrinter
-import android.hardware.usb.UsbDevice
-import android.hardware.usb.UsbManager
-import com.elintpos.wrapper.escpos.UsbEscPosPrinter
-import com.elintpos.wrapper.escpos.LanEscPosPrinter
-import com.elintpos.wrapper.escpos.ReceiptFormatter
-import com.elintpos.wrapper.pdf.PdfDownloader
-import com.elintpos.wrapper.export.CsvExporter
-import com.elintpos.wrapper.viewer.ReceiptActivity
-import com.elintpos.wrapper.R
-import com.elintpos.wrapper.printer.vendor.VendorPrinter
-import com.elintpos.wrapper.printer.vendor.EpsonPrinter
-import com.elintpos.wrapper.printer.vendor.XPrinter
-import com.elintpos.wrapper.printer.vendor.AutoReplyPrint
-import com.elintpos.wrapper.printer.PrinterConfigManager
-import com.elintpos.wrapper.printer.PrinterTester
-import com.elintpos.wrapper.sdk.SdkDownloader
-import android.content.SharedPreferences
-import android.app.ActivityManager
-import android.app.ActivityManager.RunningAppProcessInfo
-import android.app.KeyguardManager
-import androidx.appcompat.app.AlertDialog
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
-import kotlinx.coroutines.*
-import java.net.URI
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
 	companion object {
-		// Replace YOUR_DOMAIN_HERE with your actual domain (no scheme). Example: "pos.example.com"
-
-		private const val BASE_DOMAIN = "androidtesting.elintpos.in"
-		private const val BASE_URL = "https://$BASE_DOMAIN/"
-
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"
 		private const val TAG = "ElintPOS"
-		private const val ACTION_USB_PERMISSION = "com.elintpos.wrapper.USB_PERMISSION"
+		internal const val ACTION_USB_PERMISSION = "com.elintpos.wrapper.USB_PERMISSION"
+	}
+	
+	private fun getBaseUrl(): String {
+		return preferencesManager.getBaseUrl()
+	}
+	
+	private fun getBaseDomain(): String {
+		return preferencesManager.getBaseDomain()
 	}
 
-    /**
-     * Build an absolute URL from a possibly relative input.
-     * Rules:
-     * - If input already has a scheme (http/https/file/data/blob, etc.), return as-is.
-     * - If input starts with "//", prepend scheme from current page or BASE_URL (default http).
-     * - Otherwise resolve relative to the current WebView URL if available, else BASE_URL.
-     */
     private fun buildAbsoluteUrl(input: String): String {
         val url = input.trim()
         if (url.isEmpty()) return url
+        
+        val baseUrl = getBaseUrl()
 
-        // Already absolute (has scheme)
         if (url.contains("://")) return url
 
-        // Scheme-relative URL
         if (url.startsWith("//")) {
             val scheme = try {
-                Uri.parse(webView.url ?: BASE_URL).scheme ?: "http"
-            } catch (_: Exception) { "http" }
+                Uri.parse(webView.url ?: baseUrl).scheme ?: "http"
+            } catch (_: Exception) {
+                "http"
+            }
             return "$scheme:$url"
         }
 
-        // Resolve against current page or BASE_URL
         val base = try {
-            val current = webView.url ?: BASE_URL
+            val current = webView.url ?: baseUrl
             val baseUri = URI(current)
-            // Ensure base has at least scheme and authority
-            if (baseUri.scheme == null || baseUri.host == null) URI(BASE_URL) else baseUri
-        } catch (_: Exception) { URI(BASE_URL) }
+            if (baseUri.scheme == null || baseUri.host == null) URI(baseUrl) else baseUri
+        } catch (_: Exception) {
+            URI(baseUrl)
+        }
 
         return try {
             base.resolve(url).toString()
         } catch (_: Exception) {
-            // Fallback simple concatenation
-            (BASE_URL.trimEnd('/') + "/" + url.trimStart('/'))
+            (baseUrl.trimEnd('/') + "/" + url.trimStart('/'))
         }
     }
 
@@ -136,15 +110,13 @@ class MainActivity : ComponentActivity() {
 	private var filePathCallback: ValueCallback<Array<Uri>>? = null
 	private var cameraImageUri: Uri? = null
 
-	// Track URLs we've retried after a 403 to avoid infinite loops
 	private val retried403Urls = mutableSetOf<String>()
 
 	private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 	private lateinit var genericPermissionsLauncher: ActivityResultLauncher<Array<String>>
 	private var pendingPermissionsCallback: ((Map<String, Boolean>) -> Unit)? = null
 
-	private val notificationPermissionLauncher =
-		registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    private val notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
 			Toast.makeText(
 				this,
 				if (granted) "Notifications permission granted" else "Notifications permission denied",
@@ -152,2505 +124,143 @@ class MainActivity : ComponentActivity() {
 			).show()
 		}
 
-	private val storagePermissionLauncher =
-		registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-			val allGranted = permissions.values.all { it }
-			Toast.makeText(
-				this,
-				if (allGranted) "Storage permissions granted" else "Storage permissions denied",
-				Toast.LENGTH_SHORT
-			).show()
-		}
-
-	private var escPosPrinter: BluetoothEscPosPrinter? = null
-	private var usbPrinter: UsbEscPosPrinter? = null
-	private var lanPrinter: LanEscPosPrinter? = null
-	private var isBtConnected: Boolean = false
-	private var isUsbConnected: Boolean = false
-	private var isLanConnected: Boolean = false
-	private var receiptFormatter: ReceiptFormatter = ReceiptFormatter()
-	private var pdfDownloader: PdfDownloader = PdfDownloader(this)
-	private var csvExporter: CsvExporter = CsvExporter(this)
+	internal var escPosPrinter: BluetoothEscPosPrinter? = null
+	internal var usbPrinter: UsbEscPosPrinter? = null
+	internal var lanPrinter: LanEscPosPrinter? = null
+	internal var isBtConnected: Boolean = false
+	internal var isUsbConnected: Boolean = false
+	internal var isLanConnected: Boolean = false
+	internal var receiptFormatter: ReceiptFormatter = ReceiptFormatter()
+	internal var pdfDownloader: PdfDownloader = PdfDownloader(this)
+	internal var csvExporter: CsvExporter = CsvExporter(this)
     private val vendorPrinter: VendorPrinter by lazy { VendorPrinter(this) }
     private val epsonPrinter: EpsonPrinter by lazy { EpsonPrinter(this) }
     private val xPrinter: XPrinter by lazy { XPrinter(this) }
 
-	private var pendingUsbDeviceName: String? = null
-	private var pendingUsbAfterConnect: (() -> Unit)? = null
+	internal var pendingUsbDeviceName: String? = null
+	internal var pendingUsbAfterConnect: (() -> Unit)? = null
 
-	private val usbPermissionReceiver = object : android.content.BroadcastReceiver() {
-		override fun onReceive(context: Context?, intent: Intent?) {
-			try {
-				if (intent?.action != ACTION_USB_PERMISSION) return
-				val device: UsbDevice? = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-				val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-				val pendingName = pendingUsbDeviceName
-				pendingUsbDeviceName = null
-				if (device != null && granted) {
-					try {
-						val usbManager = getSystemService(USB_SERVICE) as UsbManager
-						val target = if (pendingName != null) {
-							usbManager.deviceList.values.firstOrNull { it.deviceName == pendingName }
-						} else device
-						if (target != null) {
-							usbPrinter?.close()
-							usbPrinter = UsbEscPosPrinter(this@MainActivity)
-							usbPrinter!!.connect(target)
-							isUsbConnected = true
-							Toast.makeText(this@MainActivity, "USB permission granted. Printer connected", Toast.LENGTH_SHORT).show()
-							try { pendingUsbAfterConnect?.invoke() } catch (_: Exception) {} finally { pendingUsbAfterConnect = null }
-						}
-
-					} catch (e: Exception) {
-						isUsbConnected = false
-						Toast.makeText(this@MainActivity, "USB connect failed: ${e.message}", Toast.LENGTH_SHORT).show()
-					}
-				} else {
-					Toast.makeText(this@MainActivity, "USB permission denied", Toast.LENGTH_SHORT).show()
-				}
-			} catch (_: Exception) {}
-		}
+	private val preferencesManager: com.elintpos.wrapper.utils.PreferencesManager by lazy { 
+		com.elintpos.wrapper.utils.PreferencesManager(this) 
 	}
-
-	private val prefs: SharedPreferences by lazy { getSharedPreferences("settings", Context.MODE_PRIVATE) }
 	private val printerConfigManager: PrinterConfigManager by lazy { PrinterConfigManager(this) }
 	private val printerTester: PrinterTester by lazy { PrinterTester(this) }
 	private val sdkDownloader: SdkDownloader by lazy { SdkDownloader(this) }
 	private val unifiedPrinterHandler: UnifiedPrinterHandler by lazy { UnifiedPrinterHandler(this) }
 	private val autoReplyPrint: AutoReplyPrint by lazy { AutoReplyPrint(this) }
+	
+	private lateinit var jsBridge: com.elintpos.wrapper.bridge.JavaScriptBridge
 
-	private fun isAutoStartEnabled(): Boolean = prefs.getBoolean("auto_start_enabled", true)
-	private fun setAutoStartEnabled(enabled: Boolean) { prefs.edit().putBoolean("auto_start_enabled", enabled).apply() }
-	private fun isKioskEnabled(): Boolean = prefs.getBoolean("kiosk_enabled", false)
-	private fun setKioskEnabled(enabled: Boolean) { prefs.edit().putBoolean("kiosk_enabled", enabled).apply() }
-	
-	// Session expiry handling
-	private val SESSION_TIMEOUT_MS = 8 * 60 * 60 * 1000L // 8 hours default
-	private var lastActivityTime: Long = System.currentTimeMillis()
-	
-	private fun checkSessionExpiry(): Boolean {
-		val sessionTimeout = prefs.getLong("session_timeout_ms", SESSION_TIMEOUT_MS)
-		val lastActivity = prefs.getLong("last_activity_time", System.currentTimeMillis())
-		val elapsed = System.currentTimeMillis() - lastActivity
-		
-		if (elapsed > sessionTimeout) {
-			// Session expired
-			handleSessionExpiry()
-			return true
-		}
-		return false
-	}
-	
-	private fun updateLastActivityTime() {
-		lastActivityTime = System.currentTimeMillis()
-		prefs.edit().putLong("last_activity_time", lastActivityTime).apply()
-	}
-	
-	private fun handleSessionExpiry() {
-		// Clear session data
-		prefs.edit().remove("is_logged_in").apply()
-		
-		// Show session expiry message
-		Toast.makeText(this, "Session expired. Please login again.", Toast.LENGTH_LONG).show()
-		
-		// Navigate to InitialSetupActivity or show login
-		val intent = Intent(this, InitialSetupActivity::class.java)
-		intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-		startActivity(intent)
-		finish()
-	}
-	
-	override fun onResume() {
-		super.onResume()
-		updateLastActivityTime()
-		
-		// Check session expiry when app resumes
-		if (checkSessionExpiry()) {
-			return
-		}
-	}
-	
-	override fun onPause() {
-		super.onPause()
-		updateLastActivityTime()
-	}
+	private fun isKioskEnabled(): Boolean = preferencesManager.kioskEnabled
 
-	private fun ensureLockTaskWhitelisted() {
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-			try {
-				val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-				val admin = ComponentName(this, MyDeviceAdminReceiver::class.java)
-				dpm.setLockTaskPackages(admin, arrayOf(packageName))
-			} catch (_: Exception) {}
-		}
-	}
-
-	data class PrintConfig(
-		var leftMargin: Int = 0,
-		var rightMargin: Int = 0,
-		var lineSpacing: Int = 30,
-		var widthMul: Int = 0,
-		var heightMul: Int = 0,
-		var pageWidthDots: Int = 576,
-		var linesPerPage: Int = 0
-	)
-
-	private var defaultPrintConfig = PrintConfig()
-
-	@Suppress("DEPRECATION")
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
-		setupFullscreen()
-		// Register USB permission receiver
-		registerReceiver(usbPermissionReceiver, android.content.IntentFilter(ACTION_USB_PERMISSION))
-
-		// Create main layout with WebView and settings button
-		val mainLayout = android.widget.RelativeLayout(this)
-		webView = WebView(this)
-		webView.layoutParams = android.widget.RelativeLayout.LayoutParams(
-			android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
-			android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
-		).apply {
-			addRule(android.widget.RelativeLayout.ALIGN_PARENT_TOP)
-			addRule(android.widget.RelativeLayout.ALIGN_PARENT_BOTTOM)
-			addRule(android.widget.RelativeLayout.ALIGN_PARENT_START)
-			addRule(android.widget.RelativeLayout.ALIGN_PARENT_END)
-		}
-		mainLayout.addView(webView)
 		
-		// Add floating settings button
-		val settingsButton = createSettingsButton()
-		mainLayout.addView(settingsButton)
-		
-		setContentView(mainLayout)
+		try {
+			setupFullscreen()
 
-		// Generic multi-permission launcher used by JS bridge
-		genericPermissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-			try {
-				pendingPermissionsCallback?.invoke(result)
-			} finally {
-				pendingPermissionsCallback = null
-			}
-		}
+			val mainLayout = android.widget.RelativeLayout(this)
+			webView = WebView(this)
+			webView.layoutParams = android.widget.RelativeLayout.LayoutParams(
+				android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
+				android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
+			)
+			mainLayout.addView(webView)
+			
+            // Hide native floating settings button in top-right corner.
+            // Printer settings can still be opened from the web UI / other flows.
+            // If you ever want it back, call createSettingsButton() and add it here.
+            // val settingsButton = createSettingsButton()
+			// mainLayout.addView(settingsButton)
+			
+			setContentView(mainLayout)
 
-		webView.addJavascriptInterface(object {
-			@android.webkit.JavascriptInterface
-			fun debugLog(message: String) {
-				android.util.Log.d("ElintPOS_JS", message)
-				Toast.makeText(this@MainActivity, "JS Debug: $message", Toast.LENGTH_SHORT).show()
-			}
-
-			@android.webkit.JavascriptInterface
-			fun checkInterfaceAvailable(): String {
-				return "{\"ok\":true,\"message\":\"ElintPOSNative interface is available\",\"timestamp\":${System.currentTimeMillis()}}"
-			}
-
-			@android.webkit.JavascriptInterface
-			fun testPrintFunction(): String {
-				android.util.Log.d("ElintPOS_JS", "testPrintFunction called")
-				Toast.makeText(this@MainActivity, "Test print function called", Toast.LENGTH_SHORT).show()
-				return "{\"ok\":true,\"message\":\"Test print function working\"}"
-			}
-
-			@android.webkit.JavascriptInterface
-			fun debugPageInfo(): String {
-				android.util.Log.d("ElintPOS_JS", "debugPageInfo called")
-				val currentUrl = webView.url ?: "unknown"
-				val userAgent = webView.settings.userAgentString ?: "unknown"
-				return "{\"ok\":true,\"url\":\"$currentUrl\",\"userAgent\":\"$userAgent\",\"timestamp\":${System.currentTimeMillis()}}"
-			}
-
-			@android.webkit.JavascriptInterface
-			fun forceInterfaceReconnect(): String {
-				android.util.Log.d("ElintPOS_JS", "forceInterfaceReconnect called")
-				// Re-inject the JavaScript interface
-				runOnUiThread {
-					webView.evaluateJavascript("""
-						console.log('=== Force Interface Reconnect ===');
-						console.log('Current URL:', window.location.href);
-						console.log('ElintPOSNative before:', typeof window.ElintPOSNative !== 'undefined');
-						
-						// Force a page refresh to re-inject the interface
-						setTimeout(function() {
-							console.log('Refreshing page to reconnect interface...');
-							window.location.reload();
-						}, 100);
-					""", null)
+			genericPermissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+				try {
+					pendingPermissionsCallback?.invoke(result)
+				} finally {
+					pendingPermissionsCallback = null
 				}
-				return "{\"ok\":true,\"message\":\"Interface reconnect initiated\"}"
 			}
 
-			// Open native receipt viewer for a specific URL (e.g., printable receipt page)
-			@android.webkit.JavascriptInterface
-			fun openReceiptUrl(url: String?): String {
-				return try {
-					if (url == null || url.isBlank()) return "{\"ok\":false,\"msg\":\"Empty URL\"}"
-					runOnUiThread {
-						val i = Intent(this@MainActivity, ReceiptActivity::class.java)
-						i.putExtra(ReceiptActivity.EXTRA_URL, url)
-						startActivity(i)
-					}
-					"{\"ok\":true}"
+			setupFileChooserLauncher()
+			configureWebView(webView)
+			setupDownloadHandling(webView)
+
+			jsBridge = com.elintpos.wrapper.bridge.JavaScriptBridge(
+				activity = this,
+				webViewProvider = { 
+					if (::webView.isInitialized) webView else throw IllegalStateException("WebView not initialized")
+				},
+				unifiedPrinterHandler = unifiedPrinterHandler,
+				printerConfigManager = printerConfigManager,
+				preferencesManager = preferencesManager,
+				printerTester = printerTester,
+				sdkDownloader = sdkDownloader,
+				autoReplyPrint = autoReplyPrint,
+				epsonPrinter = epsonPrinter,
+				xPrinter = xPrinter,
+				vendorPrinter = vendorPrinter
+			)
+
+			webView.addJavascriptInterface(jsBridge, "ElintPOSNative")
+
+			if (savedInstanceState != null) {
+				try {
+					webView.restoreState(savedInstanceState)
 				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
+					Log.e(TAG, "Error restoring WebView state", e)
+					// Fallback to loading base URL
+					loadInitialUrl()
 				}
+			} else {
+				loadInitialUrl()
 			}
 
-			// Open native receipt viewer for a specific orderId
-			@android.webkit.JavascriptInterface
-			fun openReceiptForOrder(orderId: String?): String {
-				return try {
-					if (orderId == null || orderId.isBlank()) return "{\"ok\":false,\"msg\":\"Empty orderId\"}"
-					runOnUiThread {
-						val i = Intent(this@MainActivity, ReceiptActivity::class.java)
-						i.putExtra(ReceiptActivity.EXTRA_ORDER_ID, orderId)
-						startActivity(i)
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// Open receipt in a dialog (WebView inside AlertDialog) using a full or relative URL
-			@android.webkit.JavascriptInterface
-			fun openReceiptDialogUrl(url: String?): String {
-				return try {
-					if (url == null || url.isBlank()) return "{\"ok\":false,\"msg\":\"Empty URL\"}"
-					val finalUrl = buildAbsoluteUrl(url)
-					runOnUiThread { showReceiptDialog(finalUrl) }
-					"{\"ok\":true}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-		
-			// Open receipt in a dialog for a given orderId (adjust path if your backend differs)
-			@android.webkit.JavascriptInterface
-			fun openReceiptDialogForOrder(orderId: String?): String {
-				return try {
-					if (orderId == null || orderId.isBlank()) return "{\"ok\":false,\"msg\":\"Empty orderId\"}"
-					val guess = BASE_URL + "pos/receipt/" + orderId + "?print=1"
-					runOnUiThread { showReceiptDialog(guess) }
-					"{\"ok\":true}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun vendorAvailable(): Boolean {
-				return try { vendorPrinter.isAvailable() } catch (_: Exception) { false }
-			}
-			@android.webkit.JavascriptInterface
-			fun epsonAvailable(): Boolean {
-				return try { epsonPrinter.isAvailable() } catch (_: Exception) { false }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun xprinterAvailable(): Boolean {
-				return try { xPrinter.isAvailable() } catch (_: Exception) { false }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun epsonPrintText(text: String): String {
-				return try {
-					if (!epsonPrinter.isAvailable()) return "{\"ok\":false,\"msg\":\"Epson SDK not available\"}"
-					val ok = epsonPrinter.printText(text)
-					if (ok) "{\"ok\":true}" else "{\"ok\":false,\"msg\":\"Epson print failed\"}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun xprinterPrintText(text: String): String {
-				return try {
-					if (!xPrinter.isAvailable()) return "{\"ok\":false,\"msg\":\"XPrinter SDK not available\"}"
-					val ok = xPrinter.printText(text)
-					if (ok) "{\"ok\":true}" else "{\"ok\":false,\"msg\":\"XPrinter print failed\"}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun vendorPrintText(text: String): String {
-				return try {
-					if (!vendorPrinter.isAvailable()) return "{\"ok\":false,\"msg\":\"Vendor SDK not available\"}"
-					val ok = vendorPrinter.printText(text)
-					if (ok) "{\"ok\":true}" else "{\"ok\":false,\"msg\":\"Vendor print failed\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// AutoReplyPrint SDK Methods
-			@android.webkit.JavascriptInterface
-			fun isAutoReplyPrintAvailable(): String {
-				return try {
-					val available = autoReplyPrint.isAvailable()
-					"{\"ok\":true,\"available\":${'$'}available}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintDiscoverPrinters(): String {
-				return try {
-					if (!autoReplyPrint.isAvailable()) {
-						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
-					}
-					
-					val discoveredPrinters = mutableListOf<Any>()
-					var discoveryStarted = false
-					
-					discoveryStarted = autoReplyPrint.startDiscover { printerDevice ->
-						try {
-							// Extract printer information using reflection
-							val deviceClass = printerDevice::class.java
-							val printerMap = mutableMapOf<String, Any>()
-							
-							// Try to get printer name
-							try {
-								val nameField = deviceClass.getField("printer_name")
-								printerMap["name"] = nameField.get(printerDevice)?.toString() ?: "Unknown"
-							} catch (_: Exception) {
-								printerMap["name"] = "Unknown Printer"
-							}
-							
-							// Try to get printer address/MAC
-							try {
-								val addressField = deviceClass.getField("printer_address")
-								printerMap["address"] = addressField.get(printerDevice)?.toString() ?: ""
-							} catch (_: Exception) {
-								printerMap["address"] = ""
-							}
-							
-							// Try to get connection type
-							try {
-								val typeField = deviceClass.getField("connection_type")
-								printerMap["connectionType"] = typeField.get(printerDevice)?.toString() ?: "Unknown"
-							} catch (_: Exception) {
-								printerMap["connectionType"] = "Unknown"
-							}
-							
-							printerMap["deviceObject"] = printerDevice.hashCode().toString() // Store reference
-							discoveredPrinters.add(printerMap)
-							
-							// Notify JavaScript about discovered printer
-							runOnUiThread {
-								val printerJson = JSONObject(printerMap as Map<*, *>)
-								webView.evaluateJavascript(
-									"if (window.onAutoReplyPrintDiscovered) window.onAutoReplyPrintDiscovered(${'$'}printerJson);",
-									null
-								)
-							}
-						} catch (e: Exception) {
-							Log.e("MainActivity", "Error processing discovered printer", e)
-						}
-					}
-					
-					if (discoveryStarted) {
-						"{\"ok\":true,\"msg\":\"Discovery started\"}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to start discovery\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintStopDiscovery(): String {
-				return try {
-					val stopped = autoReplyPrint.stopDiscover()
-					"{\"ok\":${'$'}stopped}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintConnect(printerDeviceHash: String): String {
-				return try {
-					if (!autoReplyPrint.isAvailable()) {
-						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
-					}
-					
-					// Note: In a real implementation, you'd need to store discovered devices
-					// For now, this is a placeholder - you'll need to pass the actual device object
-					"{\"ok\":false,\"msg\":\"Connection requires device object - use discovered printer\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintIsConnected(): String {
-				return try {
-					val connected = autoReplyPrint.isConnected()
-					"{\"ok\":true,\"connected\":${'$'}connected}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintDisconnect(): String {
-				return try {
-					val disconnected = autoReplyPrint.disconnect()
-					"{\"ok\":${'$'}disconnected}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintPrintText(text: String): String {
-				return try {
-					if (!autoReplyPrint.isAvailable()) {
-						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
-					}
-					
-					if (!autoReplyPrint.isConnected()) {
-						return "{\"ok\":false,\"msg\":\"Printer not connected\"}"
-					}
-					
-					// Convert text to bitmap for printing
-					// This is a simplified version - you may want to use ReceiptFormatter
-					val bitmap = createTextBitmap(text, 384) // 58mm width
-					val result = autoReplyPrint.printBitmap(bitmap)
-					
-					if (result) {
-						"{\"ok\":true}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Print failed\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintPrintBitmap(base64Image: String): String {
-				return try {
-					if (!autoReplyPrint.isAvailable()) {
-						return "{\"ok\":false,\"msg\":\"AutoReplyPrint SDK not available\"}"
-					}
-					
-					if (!autoReplyPrint.isConnected()) {
-						return "{\"ok\":false,\"msg\":\"Printer not connected\"}"
-					}
-					
-					// Decode base64 image
-					val imageBytes = android.util.Base64.decode(base64Image, android.util.Base64.DEFAULT)
-					val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-						?: return "{\"ok\":false,\"msg\":\"Failed to decode image\"}"
-					
-					val result = autoReplyPrint.printBitmap(bitmap)
-					
-					if (result) {
-						"{\"ok\":true}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Print failed\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun autoreplyprintGetStatus(): String {
-				return try {
-					val obj = JSONObject()
-					obj.put("available", autoReplyPrint.isAvailable())
-					obj.put("connected", autoReplyPrint.isConnected())
-					
-					val resolution = autoReplyPrint.getPrinterResolution()
-					if (resolution != null) {
-						try {
-							val resClass = resolution::class.java
-							val widthMethod = resClass.getMethod("getWidthMM")
-							val heightMethod = resClass.getMethod("getHeightMM")
-							val dotsPerMMMethod = resClass.getMethod("getDotsPerMM")
-							
-							obj.put("resolution", JSONObject().apply {
-								put("widthMM", widthMethod.invoke(resolution))
-								put("heightMM", heightMethod.invoke(resolution))
-								put("dotsPerMM", dotsPerMMMethod.invoke(resolution))
-							})
-						} catch (_: Exception) {
-							// Resolution info not available
-						}
-					}
-					
-					"{\"ok\":true,\"status\":${'$'}obj}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// Helper function to create bitmap from text
-			private fun createTextBitmap(text: String, width: Int): android.graphics.Bitmap {
-				val paint = android.graphics.Paint().apply {
-					color = android.graphics.Color.BLACK
-					textSize = 24f
-					isAntiAlias = true
-				}
-				
-				val bounds = android.graphics.Rect()
-				paint.getTextBounds(text, 0, text.length, bounds)
-				
-				val height = (bounds.height() * (text.lines().size + 2)).coerceAtLeast(100)
-				val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
-				val canvas = android.graphics.Canvas(bitmap)
-				canvas.drawColor(android.graphics.Color.WHITE)
-				
-				var y = bounds.height().toFloat()
-				text.lines().forEach { line ->
-					canvas.drawText(line, 0f, y, paint)
-					y += bounds.height() + 10
-				}
-				
-				return bitmap
-			}
-
-			@android.webkit.JavascriptInterface
-			fun choosePrinterAndPrint(text: String): String {
-				return try {
-					runOnUiThread { showPrinterChooserAndPrint(text) }
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-			@android.webkit.JavascriptInterface
-			fun listCrashLogs(): String {
-				return try {
-					val dir = java.io.File(filesDir, "crash")
-					if (!dir.exists()) return "{\"ok\":true,\"files\":[]}"
-					val arr = org.json.JSONArray()
-					dir.listFiles()?.sortedByDescending { it.lastModified() }?.forEach { f ->
-						val o = org.json.JSONObject()
-						o.put("name", f.name)
-						o.put("path", f.absolutePath)
-						o.put("size", f.length())
-						o.put("lastModified", f.lastModified())
-						arr.put(o)
-					}
-					"{\"ok\":true,\"files\":${'$'}arr}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun readCrashLog(path: String): String {
-				return try {
-					val file = java.io.File(path)
-					if (!file.exists()) return "{\"ok\":false,\"msg\":\"Not found\"}"
-					val txt = file.readText()
-					val o = org.json.JSONObject()
-					o.put("ok", true)
-					o.put("name", file.name)
-					o.put("path", file.absolutePath)
-					o.put("content", txt)
-					o.toString()
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun shareCrashLog(path: String): String {
-				return try {
-					val file = java.io.File(path)
-					if (!file.exists()) return "{\"ok\":false,\"msg\":\"Not found\"}"
-					val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "${'$'}packageName.fileprovider", file)
-					val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-						type = "text/plain"
-						putExtra(android.content.Intent.EXTRA_SUBJECT, "Crash log: ${'$'}{file.name}")
-						putExtra(android.content.Intent.EXTRA_STREAM, uri)
-						addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-					}
-					startActivity(android.content.Intent.createChooser(intent, "Share crash log"))
-					"{\"ok\":true}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-			@android.webkit.JavascriptInterface
-			fun getKioskEnabled(): Boolean { return isKioskEnabled() }
-
-			@android.webkit.JavascriptInterface
-			fun setKioskEnabledJs(enabled: Boolean): String {
-				return try {
-					setKioskEnabled(enabled)
-					if (enabled) {
-						ensureLockTaskWhitelisted()
-						try {
-							if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) startLockTask()
-						} catch (_: Exception) {}
-					} else {
-						try {
-							if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) stopLockTask()
-						} catch (_: Exception) {}
-					}
-					"{\"ok\":true,\"enabled\":${'$'}enabled}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-			@android.webkit.JavascriptInterface
-			fun getAutoStartEnabled(): Boolean { return isAutoStartEnabled() }
-
-			@android.webkit.JavascriptInterface
-			fun setAutoStartEnabledJs(enabled: Boolean): String {
-				return try { setAutoStartEnabled(enabled); "{\"ok\":true,\"enabled\":${'$'}enabled}" } catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-			@android.webkit.JavascriptInterface
-			fun requestAllPermissions(): String {
-				return try {
-					val perms = buildCommonPermissions()
-					runOnUiThread {
-						requestGenericPermissions(perms) { res ->
-							val granted = res.filterValues { it }.keys
-							val denied = res.filterValues { !it }.keys
-							Toast.makeText(this@MainActivity, "Permissions: granted=${'$'}granted denied=${'$'}denied", Toast.LENGTH_SHORT).show()
-						}
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun checkPermissions(permsJson: String?): String {
-				return try {
-					val list = parsePermissionsJson(permsJson)
-					val granted = org.json.JSONArray()
-					val denied = org.json.JSONArray()
-					list.forEach { p ->
-						val g = ContextCompat.checkSelfPermission(this@MainActivity, p) == android.content.pm.PackageManager.PERMISSION_GRANTED
-						if (g) granted.put(p) else denied.put(p)
-					}
-					"{\"ok\":true,\"granted\":${'$'}granted,\"denied\":${'$'}denied}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun requestPermissions(permsJson: String?): String {
-				return try {
-					val array = parsePermissionsJson(permsJson).toTypedArray()
-					runOnUiThread { requestGenericPermissions(array) { } }
-					"{\"ok\":true}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-			@android.webkit.JavascriptInterface
-			fun requestNotificationsPermission() {
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
 				requestNotificationsPermissionIfNeeded()
 			}
-
-			@android.webkit.JavascriptInterface
-			fun listPairedPrinters(): String {
-				val adapter = BluetoothAdapter.getDefaultAdapter() ?: return "[]"
-				val arr = JSONArray()
-				adapter.bondedDevices?.forEach { device ->
-					val obj = JSONObject()
-					obj.put("name", device.name)
-					obj.put("mac", device.address)
-					arr.put(obj)
-				}
-				return arr.toString()
-			}
-
-			@android.webkit.JavascriptInterface
-			fun connectPrinter(mac: String): String {
-				return try {
-					val adapter = BluetoothAdapter.getDefaultAdapter() ?: return "{\"ok\":false,\"msg\":\"No BT\"}"
-					val device = adapter.bondedDevices.firstOrNull { it.address.equals(mac, true) }
-						?: return "{\"ok\":false,\"msg\":\"Not paired\"}"
-					escPosPrinter?.close()
-					escPosPrinter = BluetoothEscPosPrinter(this@MainActivity)
-					escPosPrinter!!.connect(device)
-					isBtConnected = true
-					Toast.makeText(this@MainActivity, "Bluetooth printer connected", Toast.LENGTH_SHORT).show()
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					isBtConnected = false
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun printText(text: String, leftMargin: Int, rightMargin: Int, lineSpacing: Int, scale: Int): String {
-				return try {
-					escPosPrinter?.printText(text, leftMarginDots = leftMargin, rightMarginDots = rightMargin, lineSpacing = lineSpacing, widthMultiplier = scale, heightMultiplier = scale)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun printTextScaled(text: String, leftMargin: Int, rightMargin: Int, lineSpacing: Int, widthMul: Int, heightMul: Int, pageWidthDots: Int): String {
-				return try {
-					escPosPrinter?.printText(text, leftMarginDots = leftMargin, rightMarginDots = rightMargin, lineSpacing = lineSpacing, widthMultiplier = widthMul, heightMultiplier = heightMul, pageWidthDots = pageWidthDots)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun listUsbPrinters(): String {
-				val p = UsbEscPosPrinter(this@MainActivity)
-				val devices = p.listPrinters()
-				val arr = JSONArray()
-				devices.forEach { d ->
-					val obj = JSONObject()
-					obj.put("vendorId", d.vendorId)
-					obj.put("productId", d.productId)
-					obj.put("deviceName", d.deviceName)
-					arr.put(obj)
-				}
-				return arr.toString()
-			}
-
-			@android.webkit.JavascriptInterface
-			fun requestUsbPermission(deviceName: String): String {
-				return try {
-					val usbManager = getSystemService(USB_SERVICE) as UsbManager
-					val device = usbManager.deviceList.values.firstOrNull { it.deviceName == deviceName }
-						?: return "{\"ok\":false,\"msg\":\"Not found\"}"
-					if (usbManager.hasPermission(device)) {
-						"{\"ok\":true,\"msg\":\"Already granted\"}"
-					} else {
-						pendingUsbDeviceName = deviceName
-						val pi = android.app.PendingIntent.getBroadcast(
-							this@MainActivity,
-							0,
-							Intent(ACTION_USB_PERMISSION),
-							if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) android.app.PendingIntent.FLAG_MUTABLE else 0
-						)
-						usbManager.requestPermission(device, pi)
-						"{\"ok\":true,\"msg\":\"Requested\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun connectUsbPrinter(deviceName: String): String {
-				return try {
-					val usbManager = getSystemService(USB_SERVICE) as UsbManager
-					val device = usbManager.deviceList.values.firstOrNull { it.deviceName == deviceName }
-						?: return "{\"ok\":false,\"msg\":\"Not found\"}"
-					if (!usbManager.hasPermission(device)) {
-						pendingUsbDeviceName = deviceName
-						val pi = android.app.PendingIntent.getBroadcast(
-							this@MainActivity,
-							0,
-							Intent(ACTION_USB_PERMISSION),
-							if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) android.app.PendingIntent.FLAG_MUTABLE else 0
-						)
-						usbManager.requestPermission(device, pi)
-						return "{\"ok\":false,\"msg\":\"USB permission requested\"}"
-					}
-					usbPrinter?.close()
-					usbPrinter = UsbEscPosPrinter(this@MainActivity)
-					usbPrinter!!.connect(device)
-					isUsbConnected = true
-					Toast.makeText(this@MainActivity, "USB printer connected", Toast.LENGTH_SHORT).show()
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					isUsbConnected = false
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun usbPrintText(text: String, leftMargin: Int, rightMargin: Int, lineSpacing: Int, scale: Int): String {
-				return try {
-					usbPrinter?.printText(text, leftMarginDots = leftMargin, rightMarginDots = rightMargin, lineSpacing = lineSpacing, widthMultiplier = scale, heightMultiplier = scale)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun usbPrintTextScaled(text: String, leftMargin: Int, rightMargin: Int, lineSpacing: Int, widthMul: Int, heightMul: Int, pageWidthDots: Int): String {
-				return try {
-					usbPrinter?.printText(text, leftMarginDots = leftMargin, rightMarginDots = rightMargin, lineSpacing = lineSpacing, widthMultiplier = widthMul, heightMultiplier = heightMul, pageWidthDots = pageWidthDots)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun setDefaultPrintConfig(leftMargin: Int, rightMargin: Int, lineSpacing: Int, widthMul: Int, heightMul: Int, pageWidthDots: Int, linesPerPage: Int): String {
-				defaultPrintConfig = PrintConfig(leftMargin, rightMargin, lineSpacing, widthMul, heightMul, pageWidthDots, linesPerPage)
-				return "{\"ok\":true}"
-			}
-
-			@android.webkit.JavascriptInterface
-			fun btPrint(text: String): String {
-				// Use unified printer handler with Bluetooth preference
-				val result = unifiedPrinterHandler.print(text, "bluetooth")
-				return result.toJson()
-			}
-
-			@android.webkit.JavascriptInterface
-			fun usbPrint(text: String): String {
-				// Use unified printer handler with USB preference
-				val result = unifiedPrinterHandler.print(text, "usb")
-				return result.toJson()
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getPrinterStatus(): String {
-				return try {
-					val obj = JSONObject()
-					obj.put("bt", isBtConnected)
-					obj.put("usb", isUsbConnected)
-					obj.put("lan", isLanConnected)
-					obj.put("any", isBtConnected || isUsbConnected || isLanConnected)
-					
-					// Add detailed USB device information
-					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
-					val deviceList = usbManager.deviceList
-					val usbDevices = deviceList.values.map { device ->
-						val deviceInfo = JSONObject()
-						deviceInfo.put("deviceName", device.deviceName ?: "Unknown")
-						deviceInfo.put("vendorId", device.vendorId)
-						deviceInfo.put("productId", device.productId)
-						deviceInfo.put("deviceClass", device.deviceClass)
-						deviceInfo.put("deviceSubclass", device.deviceSubclass)
-						deviceInfo.put("deviceProtocol", device.deviceProtocol)
-						deviceInfo
-					}
-					obj.put("usbDevices", JSONArray(usbDevices))
-					
-					// Add connection details
-					val connectionDetails = JSONObject()
-					connectionDetails.put("usbPrinterInstance", usbPrinter != null)
-					connectionDetails.put("btPrinterInstance", escPosPrinter != null)
-					connectionDetails.put("lanPrinterInstance", lanPrinter != null)
-					obj.put("connectionDetails", connectionDetails)
-					
-					obj.toString()
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Error getting printer status: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun showToast(message: String) {
-				Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
-			}
-
-			@android.webkit.JavascriptInterface
-			fun printFromWeb(text: String, prefer: String): String {
-				android.util.Log.d("ElintPOS_JS", "printFromWeb called with text length: ${text.length}, prefer: $prefer")
-				// Use unified printer handler - automatically uses configured printer SDK
-				val result = unifiedPrinterHandler.print(text, prefer)
-				if (result.success) {
-					Toast.makeText(this@MainActivity, "Print sent successfully", Toast.LENGTH_SHORT).show()
-				} else {
-					Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
-				}
-				return result.toJson()
-			}
-
-			// LAN Printer Functions
-			@android.webkit.JavascriptInterface
-			fun connectLanPrinter(ipAddress: String, port: Int = 9100): String {
-				return try {
-					lanPrinter?.close()
-					lanPrinter = LanEscPosPrinter(this@MainActivity)
-					lanPrinter!!.connect(ipAddress, port)
-					isLanConnected = true
-					Toast.makeText(this@MainActivity, "LAN printer connected: $ipAddress", Toast.LENGTH_SHORT).show()
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					isLanConnected = false
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun lanPrint(text: String): String {
-				// Use unified printer handler with LAN preference
-				val result = unifiedPrinterHandler.print(text, "lan")
-				return result.toJson()
-			}
-
-			// Barcode and QR Code Functions
-			@android.webkit.JavascriptInterface
-			fun printBarcode(data: String, barcodeType: Int = 73, height: Int = 50, width: Int = 2, position: Int = 0, prefer: String = "auto"): String {
-				// Use unified printer handler for barcode printing
-				val result = unifiedPrinterHandler.printBarcode(data, barcodeType, height, width, position, prefer)
-				return result.toJson()
-			}
-
-			@android.webkit.JavascriptInterface
-			fun printQRCode(data: String, size: Int = 3, errorCorrection: Int = 0, prefer: String = "auto"): String {
-				// Use unified printer handler for QR code printing
-				val result = unifiedPrinterHandler.printQRCode(data, size, errorCorrection, prefer)
-				return result.toJson()
-			}
-
-			// Enhanced Receipt Formatting
-			@android.webkit.JavascriptInterface
-			fun formatAndPrintInvoice(saleDataJson: String, configJson: String = "{}", prefer: String = "auto"): String {
-				return try {
-					val saleData = JSONObject(saleDataJson)
-					val configObj = JSONObject(configJson)
-					
-					val config = ReceiptFormatter.ReceiptConfig(
-						paperWidth = configObj.optInt("paperWidth", ReceiptFormatter.PAPER_WIDTH_80MM),
-						leftMargin = configObj.optInt("leftMargin", 0),
-						rightMargin = configObj.optInt("rightMargin", 0),
-						lineSpacing = configObj.optInt("lineSpacing", 30),
-						widthMultiplier = configObj.optInt("widthMultiplier", 0),
-						heightMultiplier = configObj.optInt("heightMultiplier", 0),
-						includeBarcode = configObj.optBoolean("includeBarcode", false),
-						includeQR = configObj.optBoolean("includeQR", false),
-						compactLayout = configObj.optBoolean("compactLayout", false)
-					)
-					
-					val formattedText = receiptFormatter.formatInvoice(saleData, config)
-					// Use unified printer handler - automatically uses configured printer SDK
-					val result = unifiedPrinterHandler.print(formattedText, prefer)
-					
-					// Print barcode/QR if requested
-					if (config.includeBarcode) {
-						val invoiceNumber = saleData.optString("invoice_number", "")
-						if (invoiceNumber.isNotEmpty()) {
-							unifiedPrinterHandler.printBarcode(invoiceNumber, ReceiptFormatter.BARCODE_CODE128, preferType = prefer)
-						}
-					}
-					
-					if (config.includeQR) {
-						val invoiceNumber = saleData.optString("invoice_number", "")
-						if (invoiceNumber.isNotEmpty()) {
-							unifiedPrinterHandler.printQRCode(invoiceNumber, preferType = prefer)
-						}
-					}
-					
-					result.toJson()
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun formatAndPrintReceipt(saleDataJson: String, configJson: String = "{}", prefer: String = "auto"): String {
-				return try {
-					val saleData = JSONObject(saleDataJson)
-					val configObj = JSONObject(configJson)
-					
-					val config = ReceiptFormatter.ReceiptConfig(
-						paperWidth = configObj.optInt("paperWidth", ReceiptFormatter.PAPER_WIDTH_80MM),
-						leftMargin = configObj.optInt("leftMargin", 0),
-						rightMargin = configObj.optInt("rightMargin", 0),
-						lineSpacing = configObj.optInt("lineSpacing", 30),
-						widthMultiplier = configObj.optInt("widthMultiplier", 0),
-						heightMultiplier = configObj.optInt("heightMultiplier", 0),
-						compactLayout = configObj.optBoolean("compactLayout", true)
-					)
-					
-					val formattedText = receiptFormatter.formatReceipt(saleData, config)
-					// Use unified printer handler - automatically uses configured printer SDK
-					val result = unifiedPrinterHandler.print(formattedText, prefer)
-					result.toJson()
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun formatAndPrintKitchenOrder(orderDataJson: String, configJson: String = "{}", prefer: String = "auto"): String {
-				return try {
-					val orderData = JSONObject(orderDataJson)
-					val configObj = JSONObject(configJson)
-					
-					val config = ReceiptFormatter.ReceiptConfig(
-						paperWidth = configObj.optInt("paperWidth", ReceiptFormatter.PAPER_WIDTH_80MM),
-						leftMargin = configObj.optInt("leftMargin", 0),
-						rightMargin = configObj.optInt("rightMargin", 0),
-						lineSpacing = configObj.optInt("lineSpacing", 30),
-						widthMultiplier = configObj.optInt("widthMultiplier", 1),
-						heightMultiplier = configObj.optInt("heightMultiplier", 1)
-					)
-					
-					val formattedText = receiptFormatter.formatKitchenOrder(orderData, config)
-					// Use unified printer handler - automatically uses configured printer SDK
-					val result = unifiedPrinterHandler.print(formattedText, prefer)
-					result.toJson()
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// Printer Management UI
-			@android.webkit.JavascriptInterface
-			fun openPrinterManagement(): String {
-				return try {
-					webView.loadUrl("file:///android_asset/printer_management.html")
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun showPrinterSettingsPopup(): String {
-				return try {
-					runOnUiThread {
-						showPrinterSettingsPopup()
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun showQuickSettingsPopup(): String {
-				return try {
-					runOnUiThread {
-						showQuickSettingsPopup()
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun openPrinterSettingsUI(): String {
-				return try {
-					runOnUiThread {
-						openPrinterSettingsUI()
-					}
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun openSettingsDemo(): String {
-				return try {
-					webView.loadUrl("file:///android_asset/settings_demo.html")
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			/**
-			 * Proper logout function - clears session and redirects to logout
-			 * This bypasses the logout redirect blocking for intentional logouts
-			 * Returns: {"ok": true} or {"ok": false, "msg": "error message"}
-			 */
-			@android.webkit.JavascriptInterface
-			fun logout(): String {
-				return try {
-					runOnUiThread {
-						// Clear WebView data and cookies
-						webView.clearCache(true)
-						webView.clearHistory()
-						webView.clearFormData()
-						
-						// Clear cookies
-						val cookieManager = CookieManager.getInstance()
-						cookieManager.removeAllCookies(null)
-						cookieManager.flush()
-						
-						// Navigate to logout URL with intentional parameter
-						webView.loadUrl("$BASE_URL/auth/logout?intentional=true")
-						
-						Toast.makeText(this@MainActivity, "Logged out successfully", Toast.LENGTH_SHORT).show()
-					}
-					"{\"ok\":true,\"message\":\"Logout initiated\"}"
-				} catch (e: Exception) {
-					android.util.Log.e("ElintPOS", "Error during logout", e)
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			/**
-			 * Clear session data without redirecting
-			 * Useful for clearing user data while staying on current page
-			 * Returns: {"ok": true} or {"ok": false, "msg": "error message"}
-			 */
-			@android.webkit.JavascriptInterface
-			fun clearSession(): String {
-				return try {
-					runOnUiThread {
-						// Clear WebView data
-						webView.clearCache(true)
-						webView.clearFormData()
-						
-						// Clear cookies
-						val cookieManager = CookieManager.getInstance()
-						cookieManager.removeAllCookies(null)
-						cookieManager.flush()
-						
-						Toast.makeText(this@MainActivity, "Session cleared", Toast.LENGTH_SHORT).show()
-					}
-					"{\"ok\":true,\"message\":\"Session cleared\"}"
-				} catch (e: Exception) {
-					android.util.Log.e("ElintPOS", "Error clearing session", e)
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			/**
-			 * Allow logout redirect from web interface
-			 * This enables logout from any web-based logout button/link
-			 * Returns: {"ok": true} or {"ok": false, "msg": "error message"}
-			 */
-			@android.webkit.JavascriptInterface
-			fun allowLogoutRedirect(logoutUrl: String): String {
-				return try {
-					runOnUiThread {
-						android.util.Log.d("ElintPOS", "Allowing logout redirect to: $logoutUrl")
-						
-						// Clear session data first
-						webView.clearCache(true)
-						webView.clearFormData()
-						
-						val cookieManager = CookieManager.getInstance()
-						cookieManager.removeAllCookies(null)
-						cookieManager.flush()
-						
-						// Navigate to logout URL
-						webView.loadUrl(logoutUrl)
-						
-						Toast.makeText(this@MainActivity, "Logging out...", Toast.LENGTH_SHORT).show()
-					}
-					"{\"ok\":true,\"message\":\"Logout redirect allowed\"}"
-				} catch (e: Exception) {
-					android.util.Log.e("ElintPOS", "Error allowing logout redirect", e)
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
 			
-			@android.webkit.JavascriptInterface
-			fun getPrinterConnectionStatus(): String {
-				return try {
-					val status = mutableMapOf<String, Any>()
-					status["usb"] = isUsbConnected
-					status["bluetooth"] = isBtConnected
-					status["lan"] = isLanConnected
-					status["usbPrinter"] = usbPrinter != null
-					status["btPrinter"] = escPosPrinter != null
-					status["lanPrinter"] = lanPrinter != null
-					
-					// Check for available USB devices
-					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
-					val deviceList = usbManager.deviceList
-					val availableUsbDevices = deviceList.values.map { device ->
-						mapOf(
-							"deviceName" to device.deviceName,
-							"vendorId" to device.vendorId,
-							"productId" to device.productId
-						)
-					}
-					status["availableUsbDevices"] = availableUsbDevices
-					
-					org.json.JSONObject(status as Map<Any?, Any?>).toString()
-				} catch (e: Exception) {
-					"{\"error\":\"${e.message}\"}"
-				}
+			// Check and enable kiosk mode if preference is set
+			checkAndEnableKioskMode()
+		} catch (e: Exception) {
+			Log.e(TAG, "Critical error in onCreate", e)
+			Toast.makeText(this, "App initialization error. Please restart the app.", Toast.LENGTH_LONG).show()
+			// Don't finish() here - let the crash handler restart the app
+			throw e
+		}
+	}
+	
+	/**
+	 * Check kiosk mode preference and enable lock task mode if enabled
+	 * 
+	 * This ensures that when the app starts, if kiosk mode was enabled
+	 * in PrinterSetupActivity, it remains enabled in MainActivity.
+	 */
+	private fun checkAndEnableKioskMode() {
+		if (isKioskEnabled() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+			try {
+				startLockTask()
+				Log.d(TAG, "Kiosk mode enabled on startup - lock task started")
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to enable kiosk mode on startup", e)
+				// Don't show toast here as it might be too early in the lifecycle
 			}
-			
-			@android.webkit.JavascriptInterface
-			fun connectUsbDeviceByPath(devicePath: String): String {
-				return try {
-					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
-					val deviceList = usbManager.deviceList
-					
-					// Find device by path
-					val usbDevice = deviceList.values.firstOrNull { device ->
-						device.deviceName == devicePath || device.deviceName?.contains(devicePath) == true
-					}
-					
-					if (usbDevice != null) {
-						try {
-							usbPrinter?.close()
-							usbPrinter = UsbEscPosPrinter(this@MainActivity)
-							usbPrinter!!.connect(usbDevice)
-							isUsbConnected = true
-							"{\"ok\":true,\"msg\":\"USB device connected: ${usbDevice.deviceName} (VID: 0x${usbDevice.vendorId.toString(16).uppercase()}, PID: 0x${usbDevice.productId.toString(16).uppercase()})\"}"
-						} catch (connectError: Exception) {
-							"{\"ok\":false,\"msg\":\"Failed to connect to device: ${connectError.message}. Device: ${usbDevice.deviceName}\"}"
-						}
-					} else {
-						"{\"ok\":false,\"msg\":\"Device not found: $devicePath. Available devices: ${deviceList.keys.joinToString()}\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Error connecting to device: ${e.message}\"}"
-				}
-			}
-			
-			@android.webkit.JavascriptInterface
-			fun showPrinterSelector(): String {
-				return try {
-					runOnUiThread {
-						// Load the printer selector overlay
-						webView.loadUrl("file:///android_asset/printer_selector.html")
-					}
-					"{\"ok\":true,\"msg\":\"Printer selector opened\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Failed to open printer selector: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun showSdkInstaller(): String {
-				return try {
-					runOnUiThread {
-						// Load the SDK installer page
-						webView.loadUrl("file:///android_asset/sdk_installer.html")
-					}
-					"{\"ok\":true,\"msg\":\"SDK installer opened\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Failed to open SDK installer: ${e.message}\"}"
-				}
-			}
-			
-			@android.webkit.JavascriptInterface
-			fun closePrinterSelector(): String {
-				return try {
-					runOnUiThread {
-						// Go back to the previous page or main page
-						if (webView.canGoBack()) {
-							webView.goBack()
-						} else {
-							webView.loadUrl("file:///android_asset/index.html")
-						}
-					}
-					"{\"ok\":true,\"msg\":\"Printer selector closed\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Failed to close printer selector: ${e.message}\"}"
-				}
-			}
-			
-			@android.webkit.JavascriptInterface
-			fun printWebContent(content: String, printerType: String = "auto"): String {
-				// Check if direct print is enabled (show_print_dialog = false means direct print)
-				val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-				val showPrintDialog = prefs.getBoolean("show_print_dialog", false)
-				
-				if (!showPrintDialog) {
-					// Direct print using configured printer SDK with configured page size
-					val result = unifiedPrinterHandler.print(content, printerType)
-					return result.toJson()
-				} else {
-					// Show Android print dialog
-					return try {
-						runOnUiThread {
-							val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
-							val printAdapter = webView.createPrintDocumentAdapter("Web Content")
-							
-							// Get configured paper size from printer profile
-							val profile = printerConfigManager.getLastUsedProfile() 
-								?: printerConfigManager.getAllProfiles().firstOrNull { it.enabled }
-							
-							val mediaSize = when (profile?.paperWidth) {
-								PrinterConfigManager.PAPER_58MM -> PrintAttributes.MediaSize.ISO_A7 // Closest to 58mm
-								PrinterConfigManager.PAPER_112MM -> PrintAttributes.MediaSize.ISO_A4
-								else -> PrintAttributes.MediaSize.ISO_A6 // Closest to 80mm
-							}
-							
-							val printJob = printManager.print(
-								"Web Print Job",
-								printAdapter,
-								PrintAttributes.Builder()
-									.setMediaSize(mediaSize)
-									.setResolution(PrintAttributes.Resolution("printer", "printer", 600, 600))
-									.setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
-									.build()
-							)
-						}
-						"{\"ok\":true,\"msg\":\"Print dialog opened\"}"
-					} catch (e: Exception) {
-						"{\"ok\":false,\"msg\":\"Failed to open print dialog: ${e.message}\"}"
-					}
-				}
-			}
-
-
-
-			@android.webkit.JavascriptInterface
-			fun showNativePrintDialog(): String {
-				return try {
-					// Check if direct print is enabled (show_print_dialog = false means direct print)
-					val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-					val showPrintDialog = prefs.getBoolean("show_print_dialog", false)
-					
-					if (!showPrintDialog) {
-						// Direct print using configured printer SDK
-						// Extract text content from webview for thermal printer
-						webView.evaluateJavascript(
-							"(function() { " +
-							"var body = document.body.innerText || document.body.textContent || ''; " +
-							"if (!body || body.trim() === '') { " +
-							"  // Try to get content from common print containers " +
-							"  var printArea = document.querySelector('.print-area, .receipt, .invoice, #print-content, [data-print]'); " +
-							"  if (printArea) body = printArea.innerText || printArea.textContent || ''; " +
-							"} " +
-							"return body; " +
-							"})();"
-						) { text ->
-							Thread {
-								try {
-									// Clean up the JavaScript string result
-									var content = text?.replace("\\n", "\n")?.replace("\\\"", "\"")?.replace("\\r", "\r")?.trim('"') ?: ""
-									
-									// If content is still empty, try getting all text
-									if (content.isEmpty()) {
-										runOnUiThread {
-											webView.evaluateJavascript(
-												"(function() { return document.body ? document.body.innerText : ''; })();"
-											) { text2 ->
-												Thread {
-													content = text2?.replace("\\n", "\n")?.replace("\\\"", "\"")?.trim('"') ?: ""
-													if (content.isNotEmpty()) {
-														val result = unifiedPrinterHandler.print(content, null)
-														runOnUiThread {
-															if (result.success) {
-																Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
-															} else {
-																Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
-															}
-														}
-													} else {
-														runOnUiThread {
-															Toast.makeText(this@MainActivity, "No content to print", Toast.LENGTH_SHORT).show()
-														}
-													}
-												}.start()
-											}
-										}
-										return@Thread
-									}
-									
-									// Print the content
-									val result = unifiedPrinterHandler.print(content, null)
-									runOnUiThread {
-										if (result.success) {
-											Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
-										} else {
-											Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
-										}
-									}
-								} catch (e: Exception) {
-									runOnUiThread {
-										Toast.makeText(this@MainActivity, "Print error: ${e.message}", Toast.LENGTH_SHORT).show()
-									}
-								}
-							}.start()
-						}
-						return "{\"ok\":true,\"msg\":\"Direct print initiated using configured printer\"}"
-					}
-					
-					// Show Android print dialog
-					runOnUiThread {
-						val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
-						val printAdapter = webView.createPrintDocumentAdapter("Web Content")
-						
-						// Get configured paper size from printer profile
-						val profile = printerConfigManager.getLastUsedProfile() 
-							?: printerConfigManager.getAllProfiles().firstOrNull { it.enabled }
-						
-						val mediaSize = when (profile?.paperWidth) {
-							PrinterConfigManager.PAPER_58MM -> PrintAttributes.MediaSize.ISO_A7 // Closest to 58mm
-							PrinterConfigManager.PAPER_112MM -> PrintAttributes.MediaSize.ISO_A4
-							else -> PrintAttributes.MediaSize.ISO_A6 // Closest to 80mm
-						}
-						
-						val printJob = printManager.print(
-							"Web Print Job",
-							printAdapter,
-							PrintAttributes.Builder()
-								.setMediaSize(mediaSize)
-								.setResolution(PrintAttributes.Resolution("printer", "printer", 600, 600))
-								.setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
-								.build()
-						)
-					}
-					"{\"ok\":true,\"msg\":\"Native print dialog opened\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Failed to open print dialog: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getConnectedPrinterNames(): String {
-				return try {
-					val printers = mutableListOf<Map<String, Any>>()
-					
-					// Get USB printer names
-					if (isUsbConnected && usbPrinter != null) {
-						val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
-						val deviceList = usbManager.deviceList
-						deviceList.values.forEach { device ->
-							val printerMap = mutableMapOf<String, Any>()
-							printerMap["name"] = device.deviceName ?: "USB Printer"
-							printerMap["type"] = "USB"
-							printerMap["connected"] = true
-							printerMap["vendorId"] = device.vendorId
-							printerMap["productId"] = device.productId
-							printers.add(printerMap)
-						}
-					}
-					
-					// Get Bluetooth printer names
-					if (isBtConnected && escPosPrinter != null) {
-						val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-						val pairedDevices = bluetoothAdapter?.bondedDevices
-						pairedDevices?.forEach { device ->
-							if (device.type == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
-								val printerMap = mutableMapOf<String, Any>()
-								printerMap["name"] = device.name ?: "Bluetooth Printer"
-								printerMap["type"] = "Bluetooth"
-								printerMap["connected"] = true
-								printerMap["address"] = device.address
-								printers.add(printerMap)
-							}
-						}
-					}
-					
-					// Get LAN printer names
-					if (isLanConnected && lanPrinter != null) {
-						val printerMap = mutableMapOf<String, Any>()
-						printerMap["name"] = "LAN Printer"
-						printerMap["type"] = "Network"
-						printerMap["connected"] = true
-						printerMap["ip"] = "192.168.1.100" // You can get actual IP from your LAN printer
-						printers.add(printerMap)
-					}
-					
-					org.json.JSONObject(mapOf("printers" to printers)).toString()
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Error getting printer names: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun testEscPosPrinting(): String {
-				return try {
-					val testContent = """
-						================================
-						ESC/POS PRINTING TEST
-						================================
-						
-						This test verifies that ESC/POS printing
-						works without vendor SDKs.
-						
-						Timestamp: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}
-						
-						Features tested:
-						- USB Printing: ${if (isUsbConnected) "Available" else "Not Connected"}
-						- Bluetooth Printing: ${if (isBtConnected) "Available" else "Not Connected"}
-						- LAN Printing: ${if (isLanConnected) "Available" else "Not Connected"}
-						
-						================================
-						END OF TEST
-						================================
-						
-						
-						
-					""".trimIndent()
-					
-					// Try to print using any available printer
-					val result = printWebContent(testContent, "auto")
-					val response = JSONObject(result)
-					
-					if (response.getBoolean("ok")) {
-						"{\"ok\":true,\"msg\":\"ESC/POS printing test successful: ${response.getString("msg")}\"}"
-					} else {
-						"{\"ok\":false,\"msg\":\"ESC/POS printing test failed: ${response.getString("msg")}\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"ESC/POS test error: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun downloadEpsonSdk(): String {
-				return try {
-					runBlocking {
-						val result = sdkDownloader.downloadEpsonSdk()
-						when (result) {
-							is SdkDownloader.DownloadResult.Success -> 
-								"{\"ok\":true,\"msg\":\"${result.message}\"}"
-							is SdkDownloader.DownloadResult.Error -> 
-								"{\"ok\":false,\"msg\":\"${result.message}\"}"
-							is SdkDownloader.DownloadResult.Info -> 
-								"{\"ok\":true,\"msg\":\"${result.message}\"}"
-						}
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Download error: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun downloadXPrinterSdk(): String {
-				return try {
-					runBlocking {
-						val result = sdkDownloader.downloadXPrinterSdk()
-						when (result) {
-							is SdkDownloader.DownloadResult.Success -> 
-								"{\"ok\":true,\"msg\":\"${result.message}\"}"
-							is SdkDownloader.DownloadResult.Error -> 
-								"{\"ok\":false,\"msg\":\"${result.message}\"}"
-							is SdkDownloader.DownloadResult.Info -> 
-								"{\"ok\":true,\"msg\":\"${result.message}\"}"
-						}
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Download error: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun checkSdkAvailability(): String {
-				return try {
-					val availability = sdkDownloader.checkSdkAvailability()
-					val json = org.json.JSONObject(availability as Map<Any?, Any?>)
-					"{\"ok\":true,\"availability\":$json}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Error checking SDK availability: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun installAllSdks(): String {
-				return try {
-					runBlocking {
-						val epsonResult = sdkDownloader.downloadEpsonSdk()
-						val xprinterResult = sdkDownloader.downloadXPrinterSdk()
-						
-						val results = mutableListOf<String>()
-						
-						when (epsonResult) {
-							is SdkDownloader.DownloadResult.Success -> 
-								results.add("Epson SDK: ${epsonResult.message}")
-							is SdkDownloader.DownloadResult.Error -> 
-								results.add("Epson SDK Error: ${epsonResult.message}")
-							is SdkDownloader.DownloadResult.Info -> 
-								results.add("Epson SDK: ${epsonResult.message}")
-						}
-						
-						when (xprinterResult) {
-							is SdkDownloader.DownloadResult.Success -> 
-								results.add("XPrinter SDK: ${xprinterResult.message}")
-							is SdkDownloader.DownloadResult.Error -> 
-								results.add("XPrinter SDK Error: ${xprinterResult.message}")
-							is SdkDownloader.DownloadResult.Info -> 
-								results.add("XPrinter SDK: ${xprinterResult.message}")
-						}
-						
-						"{\"ok\":true,\"msg\":\"${results.joinToString("\\n")}\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Installation error: ${e.message}\"}"
-				}
-			}
-			
-			@android.webkit.JavascriptInterface
-			fun testProfileSaving(): String {
-				return try {
-					// Create a test USB profile
-					val testProfile = PrinterConfigManager.PrinterConfig(
-						type = "usb",
-						name = "Test USB Printer",
-						enabled = true,
-						paperWidth = 384,
-						connectionParams = mapOf(
-							"devicePath" to "/dev/bus/usb/005/002",
-							"vendorId" to "0x04E8",
-							"productId" to "0x1234"
-						)
-					)
-					
-					val success = printerConfigManager.saveProfile(testProfile)
-					if (success) {
-						"{\"ok\":true,\"msg\":\"Test profile saved successfully\"}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to save test profile\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Test profile save error: ${e.message}\"}"
-				}
-			}
-			
-			@android.webkit.JavascriptInterface
-			fun autoConnectUsbPrinter(): String {
-				return try {
-					val usbManager = getSystemService(Context.USB_SERVICE) as android.hardware.usb.UsbManager
-					val deviceList = usbManager.deviceList
-					
-					// First try to find a known printer vendor ID
-					var usbDevice = deviceList.values.firstOrNull { device ->
-						val vid = device.vendorId
-						vid == 0x04E8 || vid == 0x04B8 || vid == 0x04F9 || vid == 0x0FE6 || vid == 0x154F || 
-						vid == 0x03F0 || vid == 0x04A9 || vid == 0x0BDA || vid == 0x0ACD || vid == 0x0B05
-					}
-					
-					// If no known printer found, try any USB device (broader approach)
-					if (usbDevice == null) {
-						usbDevice = deviceList.values.firstOrNull { device ->
-							// Look for devices that might be printers based on device class or name
-							val deviceName = device.deviceName?.lowercase() ?: ""
-							deviceName.contains("printer") || deviceName.contains("pos") || 
-							deviceName.contains("thermal") || deviceName.contains("receipt")
-						}
-					}
-					
-					// If still no device found, try the first available USB device
-					if (usbDevice == null && deviceList.isNotEmpty()) {
-						usbDevice = deviceList.values.first()
-					}
-					
-					if (usbDevice != null) {
-						try {
-							usbPrinter?.close()
-							usbPrinter = UsbEscPosPrinter(this@MainActivity)
-							usbPrinter!!.connect(usbDevice)
-							isUsbConnected = true
-							"{\"ok\":true,\"msg\":\"USB printer connected: ${usbDevice.deviceName} (VID: 0x${usbDevice.vendorId.toString(16).uppercase()})\"}"
-						} catch (connectError: Exception) {
-							"{\"ok\":false,\"msg\":\"Found USB device but failed to connect: ${connectError.message}. Device: ${usbDevice.deviceName} (VID: 0x${usbDevice.vendorId.toString(16).uppercase()})\"}"
-						}
-					} else {
-						"{\"ok\":false,\"msg\":\"No USB devices found. Please check USB connection.\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"Failed to scan USB devices: ${e.message}\"}"
-				}
-			}
-
-			// Utility functions
-			@android.webkit.JavascriptInterface
-			fun getAvailablePrinters(): String {
-				return try {
-					val obj = JSONObject()
-					obj.put("bluetooth", JSONArray(listPairedPrinters()))
-					obj.put("usb", JSONArray(listUsbPrinters()))
-					obj.put("status", JSONObject(getPrinterStatus()))
-					obj.toString()
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// PDF Download Functions
-			@android.webkit.JavascriptInterface
-			fun downloadCurrentPageAsPdf(fileName: String? = null): String {
-				return try {
-					pdfDownloader.downloadCurrentPageAsPdf(webView, fileName)
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun systemPrint(jobName: String?): String {
-				return try {
-					// Check if direct print is enabled (show_print_dialog = false means direct print)
-					val prefs = getSharedPreferences("settings", Context.MODE_PRIVATE)
-					val showPrintDialog = prefs.getBoolean("show_print_dialog", false)
-					
-					if (!showPrintDialog) {
-						// Direct print using configured printer SDK with configured paper size
-						android.util.Log.d("MainActivity", "Direct print triggered - extracting content from webview")
-						
-						webView.evaluateJavascript(
-							"(function() { " +
-							"var body = document.body.innerText || document.body.textContent || ''; " +
-							"if (!body || body.trim() === '') { " +
-							"  // Try to get content from common print containers " +
-							"  var printArea = document.querySelector('.print-area, .receipt, .invoice, #print-content, [data-print], .receipt-content'); " +
-							"  if (printArea) body = printArea.innerText || printArea.textContent || ''; " +
-							"} " +
-							"return body; " +
-							"})();"
-						) { text ->
-							Thread {
-								try {
-									// Clean up the JavaScript string result
-									var content = text?.replace("\\n", "\n")?.replace("\\\"", "\"")?.replace("\\r", "\r")?.trim('"') ?: ""
-									
-									// If content is still empty, try getting all text
-									if (content.isEmpty()) {
-										runOnUiThread {
-											webView.evaluateJavascript(
-												"(function() { return document.body ? document.body.innerText : ''; })();"
-											) { text2 ->
-												Thread {
-													content = text2?.replace("\\n", "\n")?.replace("\\\"", "\"")?.trim('"') ?: ""
-													if (content.isNotEmpty()) {
-														android.util.Log.d("MainActivity", "Printing content (length: ${content.length}) with configured printer")
-														val result = unifiedPrinterHandler.print(content, null)
-														runOnUiThread {
-															if (result.success) {
-																Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
-															} else {
-																Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
-															}
-														}
-													} else {
-														runOnUiThread {
-															Toast.makeText(this@MainActivity, "No content to print", Toast.LENGTH_SHORT).show()
-														}
-													}
-												}.start()
-											}
-										}
-										return@Thread
-									}
-									
-									// Print the content using configured printer with configured paper size
-									android.util.Log.d("MainActivity", "Printing content (length: ${content.length}) with configured printer")
-									val result = unifiedPrinterHandler.print(content, null)
-									runOnUiThread {
-										if (result.success) {
-											Toast.makeText(this@MainActivity, "Printed successfully", Toast.LENGTH_SHORT).show()
-										} else {
-											Toast.makeText(this@MainActivity, "Print failed: ${result.message}", Toast.LENGTH_SHORT).show()
-										}
-									}
-								} catch (e: Exception) {
-									android.util.Log.e("MainActivity", "Direct print error", e)
-									runOnUiThread {
-										Toast.makeText(this@MainActivity, "Print error: ${e.message}", Toast.LENGTH_SHORT).show()
-									}
-								}
-							}.start()
-						}
-						return "{\"ok\":true,\"msg\":\"Direct print initiated using configured printer\"}"
-					}
-					
-					// Show Android print dialog
-					runOnUiThread {
-						val pm = getSystemService(Context.PRINT_SERVICE) as PrintManager
-						val adapter: PrintDocumentAdapter = webView.createPrintDocumentAdapter(jobName ?: "POS Print")
-						
-						// Get configured paper size from printer profile
-						val profile = printerConfigManager.getLastUsedProfile() 
-							?: printerConfigManager.getAllProfiles().firstOrNull { it.enabled }
-						
-						val mediaSize = when (profile?.paperWidth) {
-							PrinterConfigManager.PAPER_58MM -> PrintAttributes.MediaSize.ISO_A7 // Closest to 58mm
-							PrinterConfigManager.PAPER_112MM -> PrintAttributes.MediaSize.ISO_A4
-							else -> PrintAttributes.MediaSize.ISO_A6 // Closest to 80mm
-						}
-						
-						// Request high quality output and zero margins to avoid blurry text and extra whitespace
-						val attrs = PrintAttributes.Builder()
-							// Many services ignore custom resolution/media size, but when honored it improves sharpness and removes margins
-							.setResolution(PrintAttributes.Resolution("high", "High quality", 600, 600))
-							// Use configured paper size
-							.setMediaSize(mediaSize)
-							.setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
-							.setMinMargins(PrintAttributes.Margins.NO_MARGINS)
-							.build()
-						pm.print(jobName ?: "POS Print", adapter, attrs)
-					}
-					"{\"ok\":true,\"msg\":\"Print dialog opened\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// Convenience alias for web apps that want a Save As PDF flow (opens the system print dialog)
-			@android.webkit.JavascriptInterface
-			fun saveAsPdf(jobName: String?): String {
-				return systemPrint(jobName)
-			}
-
-			// CSV/Excel Export Functions
-			@android.webkit.JavascriptInterface
-			fun saveCsv(csvContent: String, fileName: String? = null): String {
-				return try { csvExporter.saveCsv(csvContent, fileName) } catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun jsonArrayToCsv(jsonArray: String, fileName: String? = null): String {
-				return try {
-					val arr = org.json.JSONArray(jsonArray)
-					csvExporter.jsonArrayToCsv(arr, fileName)
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun jsonObjectArrayFieldToCsv(containerJson: String, arrayField: String, fileName: String? = null): String {
-				return try {
-					val obj = org.json.JSONObject(containerJson)
-					csvExporter.jsonObjectArrayFieldToCsv(obj, arrayField, fileName)
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun openCsv(filePath: String): String {
-				return try { "{\"ok\":${'$'}{csvExporter.openCsv(filePath)}}" } catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun shareCsv(filePath: String): String {
-				return try { "{\"ok\":${'$'}{csvExporter.shareCsv(filePath)}}" } catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun listCsv(prefix: String = "ElintPOS_"): String {
-				return try { "{\"ok\":true,\"files\":${'$'}{csvExporter.listCsv(prefix).toString()}}" } catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun deleteCsv(filePath: String): String {
-				return try { "{\"ok\":${'$'}{csvExporter.deleteCsv(filePath)}}" } catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun downloadUrlAsPdf(url: String, fileName: String? = null): String {
-				return try {
-					pdfDownloader.downloadUrlAsPdf(url, fileName)
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun exportHtmlAsPdf(htmlContent: String, fileName: String? = null): String {
-				return try {
-					pdfDownloader.exportHtmlAsPdf(htmlContent, fileName)
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun openPdfFile(filePath: String): String {
-				return try {
-					val success = pdfDownloader.openPdfFile(filePath)
-					"{\"ok\":$success}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun sharePdfFile(filePath: String): String {
-				return try {
-					val success = pdfDownloader.sharePdfFile(filePath)
-					"{\"ok\":$success}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getDownloadedPdfs(): String {
-				return try {
-					val pdfFiles = pdfDownloader.getDownloadedPdfs()
-					val arr = JSONArray()
-					pdfFiles.forEach { file ->
-						val obj = JSONObject()
-						obj.put("name", file.name)
-						obj.put("path", file.absolutePath)
-						obj.put("size", file.length())
-						obj.put("lastModified", file.lastModified())
-						arr.put(obj)
-					}
-					"{\"ok\":true,\"files\":$arr}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun deletePdfFile(filePath: String): String {
-				return try {
-					val success = pdfDownloader.deletePdfFile(filePath)
-					"{\"ok\":$success}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// In-app viewers
-			@android.webkit.JavascriptInterface
-			fun openPdfInApp(path: String): String {
-				return try {
-					val intent = Intent(this@MainActivity, com.elintpos.wrapper.viewer.PdfViewerActivity::class.java)
-					intent.putExtra("path", path)
-					startActivity(intent)
-					"{\"ok\":true}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun openCsvInApp(path: String): String {
-				return try {
-					val intent = Intent(this@MainActivity, com.elintpos.wrapper.viewer.CsvViewerActivity::class.java)
-					intent.putExtra("path", path)
-					startActivity(intent)
-					"{\"ok\":true}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun openExcelInApp(path: String): String {
-				return try {
-					val intent = Intent(this@MainActivity, com.elintpos.wrapper.viewer.ExcelViewerActivity::class.java)
-					intent.putExtra("path", path)
-					startActivity(intent)
-					"{\"ok\":true}"
-				} catch (e: Exception) { "{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}" }
-			}
-
-			@android.webkit.JavascriptInterface
-			fun requestStoragePermissions(): String {
-				return try {
-					requestStoragePermissionsIfNeeded()
-					"{\"ok\":true,\"msg\":\"Storage permission request initiated\"}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// Printer Configuration Management Methods
-			@android.webkit.JavascriptInterface
-			fun getAllPrinterProfiles(): String {
-				return try {
-					val profiles = printerConfigManager.getAllProfiles()
-					val profilesJson = org.json.JSONArray()
-					profiles.forEach { profile ->
-						profilesJson.put(profile.toJson())
-					}
-					"{\"ok\":true,\"profiles\":${'$'}profilesJson}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getPrinterProfile(id: String): String {
-				return try {
-					val profile = printerConfigManager.getProfile(id)
-					if (profile != null) {
-						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Profile not found\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun savePrinterProfile(profileJson: String): String {
-				return try {
-					android.util.Log.d("MainActivity", "Saving profile: $profileJson")
-					
-					// Validate JSON first
-					if (profileJson.isBlank()) {
-						return "{\"ok\":false,\"msg\":\"Profile data is empty\"}"
-					}
-					
-					val profileObj = org.json.JSONObject(profileJson)
-					
-					// Validate required fields
-					if (!profileObj.has("type") || !profileObj.has("name")) {
-						return "{\"ok\":false,\"msg\":\"Profile must have type and name fields\"}"
-					}
-					
-					val profile = PrinterConfigManager.PrinterConfig.fromJson(profileObj)
-					
-					android.util.Log.d("MainActivity", "Parsed profile: type=${profile.type}, name=${profile.name}, id=${profile.id}")
-					
-					// Validate profile data
-					if (profile.type.isBlank()) {
-						return "{\"ok\":false,\"msg\":\"Profile type cannot be empty\"}"
-					}
-					if (profile.name.isBlank()) {
-						return "{\"ok\":false,\"msg\":\"Profile name cannot be empty\"}"
-					}
-					
-					val success = printerConfigManager.saveProfile(profile)
-					if (success) {
-						android.util.Log.d("MainActivity", "Profile saved successfully")
-						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
-					} else {
-						android.util.Log.e("MainActivity", "Failed to save profile")
-						"{\"ok\":false,\"msg\":\"Failed to save profile to storage\"}"
-					}
-				} catch (e: org.json.JSONException) {
-					android.util.Log.e("MainActivity", "JSON parsing error: ${e.message}", e)
-					"{\"ok\":false,\"msg\":\"Invalid profile data format: ${e.message}\"}"
-				} catch (e: Exception) {
-					android.util.Log.e("MainActivity", "Error saving profile: ${e.message}", e)
-					"{\"ok\":false,\"msg\":\"Error saving profile: ${e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun deletePrinterProfile(id: String): String {
-				return try {
-					val success = printerConfigManager.deleteProfile(id)
-					if (success) {
-						"{\"ok\":true}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to delete profile or profile is default\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun duplicatePrinterProfile(id: String, newName: String): String {
-				return try {
-					val duplicatedProfile = printerConfigManager.duplicateProfile(id, newName)
-					if (duplicatedProfile != null) {
-						"{\"ok\":true,\"profile\":${'$'}{duplicatedProfile.toJson()}}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to duplicate profile\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun setPrinterProfileAsDefault(id: String): String {
-				return try {
-					val success = printerConfigManager.setAsDefault(id)
-					if (success) {
-						"{\"ok\":true}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to set profile as default\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getPrinterProfilesByType(type: String): String {
-				return try {
-					val profiles = printerConfigManager.getProfilesByType(type)
-					val profilesJson = org.json.JSONArray()
-					profiles.forEach { profile ->
-						profilesJson.put(profile.toJson())
-					}
-					"{\"ok\":true,\"profiles\":${'$'}profilesJson}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getDefaultPrinterProfile(type: String): String {
-				return try {
-					val profile = printerConfigManager.getDefaultProfile(type)
-					if (profile != null) {
-						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
-					} else {
-						"{\"ok\":false,\"msg\":\"No default profile found for type\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getLastUsedPrinterProfile(): String {
-				return try {
-					val profile = printerConfigManager.getLastUsedProfile()
-					if (profile != null) {
-						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
-					} else {
-						"{\"ok\":false,\"msg\":\"No last used profile found\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun setLastUsedPrinterProfile(id: String): String {
-				return try {
-					printerConfigManager.setLastUsedProfile(id)
-					"{\"ok\":true}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getPrinterConfigStatistics(): String {
-				return try {
-					val stats = printerConfigManager.getStatistics()
-					val statsJson = org.json.JSONObject()
-					stats.forEach { (key, value) ->
-						statsJson.put(key, value)
-					}
-					"{\"ok\":true,\"statistics\":${'$'}statsJson}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun exportPrinterProfiles(): String {
-				return try {
-					val profilesJson = printerConfigManager.exportProfiles()
-					"{\"ok\":true,\"profiles\":${'$'}profilesJson}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun importPrinterProfiles(profilesJson: String): String {
-				return try {
-					val success = printerConfigManager.importProfiles(profilesJson)
-					if (success) {
-						"{\"ok\":true}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to import profiles\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun clearAllPrinterProfiles(): String {
-				return try {
-					val success = printerConfigManager.clearAllProfiles()
-					if (success) {
-						"{\"ok\":true}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to clear profiles\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun createPrinterProfileFromConnection(
-				type: String,
-				name: String,
-				connectionParamsJson: String,
-				paperWidth: Int = 576
-			): String {
-				return try {
-					val connectionParams = org.json.JSONObject(connectionParamsJson)
-					val paramsMap = mutableMapOf<String, String>()
-					connectionParams.keys().forEach { key ->
-						paramsMap[key] = connectionParams.getString(key)
-					}
-					val profile = printerConfigManager.createProfileFromConnection(type, name, paramsMap, paperWidth)
-					val success = printerConfigManager.saveProfile(profile)
-					if (success) {
-						"{\"ok\":true,\"profile\":${'$'}{profile.toJson()}}"
-					} else {
-						"{\"ok\":false,\"msg\":\"Failed to create profile\"}"
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun testPrinterProfile(profileId: String, testText: String = "Test Print"): String {
-				return try {
-					val profile = printerConfigManager.getProfile(profileId)
-					if (profile == null) {
-						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
-					}
-					
-					// Apply profile configuration to current print settings
-					defaultPrintConfig = PrintConfig(
-						leftMargin = profile.leftMargin,
-						rightMargin = profile.rightMargin,
-						lineSpacing = profile.lineSpacing,
-						widthMul = profile.widthMultiplier,
-						heightMul = profile.heightMultiplier,
-						pageWidthDots = profile.paperWidth,
-						linesPerPage = 0
-					)
-					
-					// Try to connect and print based on profile type
-					when (profile.type) {
-						PrinterConfigManager.TYPE_BLUETOOTH -> {
-							val mac = profile.connectionParams["mac"]
-							if (mac != null) {
-								val connectResult = connectPrinter(mac)
-								if (connectResult.contains("\"ok\":true")) {
-									btPrint(testText)
-								} else {
-									connectResult
-								}
-							} else {
-								"{\"ok\":false,\"msg\":\"No MAC address configured\"}"
-							}
-						}
-						PrinterConfigManager.TYPE_USB -> {
-							val deviceName = profile.connectionParams["deviceName"]
-							if (deviceName != null) {
-								val connectResult = connectUsbPrinter(deviceName)
-								if (connectResult.contains("\"ok\":true")) {
-									usbPrint(testText)
-								} else {
-									connectResult
-								}
-							} else {
-								"{\"ok\":false,\"msg\":\"No device name configured\"}"
-							}
-						}
-						PrinterConfigManager.TYPE_LAN -> {
-							val ip = profile.connectionParams["ip"]
-							val port = profile.connectionParams["port"]?.toIntOrNull() ?: 9100
-							if (ip != null) {
-								val connectResult = connectLanPrinter(ip, port)
-								if (connectResult.contains("\"ok\":true")) {
-									lanPrint(testText)
-								} else {
-									connectResult
-								}
-							} else {
-								"{\"ok\":false,\"msg\":\"No IP address configured\"}"
-							}
-						}
-						PrinterConfigManager.TYPE_EPSON -> {
-							epsonPrintText(testText)
-						}
-						PrinterConfigManager.TYPE_XPRINTER -> {
-							xprinterPrintText(testText)
-						}
-						PrinterConfigManager.TYPE_AUTOREPLYPRINT -> {
-							autoreplyprintPrintText(testText)
-						}
-						PrinterConfigManager.TYPE_VENDOR -> {
-							vendorPrintText(testText)
-						}
-						else -> {
-							"{\"ok\":false,\"msg\":\"Unknown printer type\"}"
-						}
-					}
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			// Printer Testing and Validation Methods
-			@android.webkit.JavascriptInterface
-			fun testPrinterProfileComprehensive(profileId: String, testText: String = "Comprehensive Test"): String {
-				return try {
-					val profile = printerConfigManager.getProfile(profileId)
-					if (profile == null) {
-						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
-					}
-					
-					val testResult = printerTester.testPrinterProfile(profile)
-					"{\"ok\":true,\"result\":${'$'}{testResult.toJson()}}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun runPrinterDiagnostics(): String {
-				return try {
-					val diagnostics = printerTester.runDiagnostics()
-					val diagnosticsJson = org.json.JSONObject()
-					diagnostics.forEach { (key, value) ->
-						when (value) {
-							is String -> diagnosticsJson.put(key, value)
-							is Int -> diagnosticsJson.put(key, value)
-							is Boolean -> diagnosticsJson.put(key, value)
-							is Double -> diagnosticsJson.put(key, value)
-							else -> diagnosticsJson.put(key, value.toString())
-						}
-					}
-					"{\"ok\":true,\"diagnostics\":${'$'}diagnosticsJson}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun validatePrinterProfile(profileId: String): String {
-				return try {
-					val profile = printerConfigManager.getProfile(profileId)
-					if (profile == null) {
-						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
-					}
-					
-					val validationResults = mutableListOf<String>()
-					var isValid = true
-					
-					// Validate required fields
-					if (profile.name.isBlank()) {
-						validationResults.add("Profile name is required")
-						isValid = false
-					}
-					
-					if (profile.type.isBlank()) {
-						validationResults.add("Printer type is required")
-						isValid = false
-					}
-					
-					// Validate connection parameters based on type
-					when (profile.type) {
-						PrinterConfigManager.TYPE_BLUETOOTH -> {
-							if (profile.connectionParams["mac"].isNullOrBlank()) {
-								validationResults.add("MAC address is required for Bluetooth printers")
-								isValid = false
-							}
-						}
-						PrinterConfigManager.TYPE_USB -> {
-							if (profile.connectionParams["deviceName"].isNullOrBlank()) {
-								validationResults.add("Device name is required for USB printers")
-								isValid = false
-							}
-						}
-						PrinterConfigManager.TYPE_LAN -> {
-							if (profile.connectionParams["ip"].isNullOrBlank()) {
-								validationResults.add("IP address is required for LAN printers")
-								isValid = false
-							}
-							val port = profile.connectionParams["port"]?.toIntOrNull()
-							if (port == null || port < 1 || port > 65535) {
-								validationResults.add("Valid port number (1-65535) is required for LAN printers")
-								isValid = false
-							}
-						}
-					}
-					
-					// Validate numeric ranges
-					if (profile.paperWidth < 200 || profile.paperWidth > 2000) {
-						validationResults.add("Paper width should be between 200-2000 dots")
-						isValid = false
-					}
-					
-					if (profile.leftMargin < 0 || profile.leftMargin > 200) {
-						validationResults.add("Left margin should be between 0-200 dots")
-						isValid = false
-					}
-					
-					if (profile.rightMargin < 0 || profile.rightMargin > 200) {
-						validationResults.add("Right margin should be between 0-200 dots")
-						isValid = false
-					}
-					
-					if (profile.lineSpacing < 0 || profile.lineSpacing > 100) {
-						validationResults.add("Line spacing should be between 0-100")
-						isValid = false
-					}
-					
-					if (profile.widthMultiplier < 0 || profile.widthMultiplier > 7) {
-						validationResults.add("Width multiplier should be between 0-7")
-						isValid = false
-					}
-					
-					if (profile.heightMultiplier < 0 || profile.heightMultiplier > 7) {
-						validationResults.add("Height multiplier should be between 0-7")
-						isValid = false
-					}
-					
-					if (profile.timeout < 1000 || profile.timeout > 30000) {
-						validationResults.add("Timeout should be between 1000-30000 milliseconds")
-						isValid = false
-					}
-					
-					val result = org.json.JSONObject()
-					result.put("valid", isValid)
-					result.put("errors", org.json.JSONArray(validationResults))
-					
-					"{\"ok\":true,\"validation\":${'$'}result}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun testAllPrinterProfiles(): String {
-				return try {
-					val profiles = printerConfigManager.getAllProfiles()
-					val results = org.json.JSONArray()
-					
-					profiles.forEach { profile ->
-						val testResult = printerTester.testPrinterProfile(profile)
-						val resultObj = org.json.JSONObject()
-						resultObj.put("profileId", profile.id)
-						resultObj.put("profileName", profile.name)
-						resultObj.put("profileType", profile.type)
-						resultObj.put("testResult", testResult.toJson())
-						results.put(resultObj)
-					}
-					
-					"{\"ok\":true,\"results\":${'$'}results}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-
-			@android.webkit.JavascriptInterface
-			fun getPrinterTestReport(profileId: String): String {
-				return try {
-					val profile = printerConfigManager.getProfile(profileId)
-					if (profile == null) {
-						return "{\"ok\":false,\"msg\":\"Profile not found\"}"
-					}
-					
-					val testResult = printerTester.testPrinterProfile(profile)
-					val diagnostics = printerTester.runDiagnostics()
-					
-					val report = org.json.JSONObject()
-					report.put("profile", profile.toJson())
-					report.put("testResult", testResult.toJson())
-					report.put("diagnostics", org.json.JSONObject(diagnostics))
-					report.put("timestamp", System.currentTimeMillis())
-					
-					"{\"ok\":true,\"report\":${'$'}report}"
-				} catch (e: Exception) {
-					"{\"ok\":false,\"msg\":\"${'$'}{e.message}\"}"
-				}
-			}
-		}, "ElintPOSNative")
-
-		setupFileChooserLauncher()
-		configureWebView(webView)
-		setupDownloadHandling(webView)
-
-		if (savedInstanceState != null) {
-			webView.restoreState(savedInstanceState)
-		} else {
-			// Load URL from saved domain or use default
-			val selectedDomain = prefs.getString("selected_domain", null)
-			val url = if (selectedDomain != null && selectedDomain.isNotEmpty()) {
-				if (selectedDomain.startsWith("http")) selectedDomain else "https://$selectedDomain/"
+		}
+	}
+	
+	private fun loadInitialUrl() {
+		try {
+			val url = getBaseUrl()
+			Log.d(TAG, "Loading initial URL: $url")
+			if (::webView.isInitialized) {
+				webView.loadUrl(url)
 			} else {
-				BASE_URL
+				Log.e(TAG, "WebView not initialized when trying to load URL")
 			}
-			webView.loadUrl(url)
-		}
-		
-		// Check session expiry on startup
-		if (checkSessionExpiry()) {
-			return
-		}
-		
-		// Update activity time
-		updateLastActivityTime()
-
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			requestNotificationsPermissionIfNeeded()
+		} catch (e: Exception) {
+			Log.e(TAG, "Error loading initial URL", e)
+			Toast.makeText(this, "Error loading page. Please check your internet connection.", Toast.LENGTH_LONG).show()
 		}
 	}
 
@@ -2673,7 +283,6 @@ class MainActivity : ComponentActivity() {
 		layoutParams.setMargins(0, 50, 20, 0)
 		settingsButton.layoutParams = layoutParams
 		
-		// Set button properties with modern FAB style
 		settingsButton.setImageResource(android.R.drawable.ic_menu_preferences)
 		settingsButton.background = android.graphics.drawable.GradientDrawable().apply {
 			shape = android.graphics.drawable.GradientDrawable.OVAL
@@ -2682,744 +291,224 @@ class MainActivity : ComponentActivity() {
 		}
 		settingsButton.setPadding(24, 24, 24, 24)
 		settingsButton.scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
-		settingsButton.elevation = 12f
 		
-		// Add ripple effect
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-			val rippleDrawable = android.graphics.drawable.RippleDrawable(
-				android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#40FFFFFF")),
-				settingsButton.background,
-				null
-			)
-			settingsButton.background = rippleDrawable
-		}
-		
-		// Make button draggable
-		var xDelta = 0f
-		var yDelta = 0f
-		settingsButton.setOnTouchListener { view, event ->
-			when (event.action) {
-				android.view.MotionEvent.ACTION_DOWN -> {
-					xDelta = view.x - event.rawX
-					yDelta = view.y - event.rawY
-					true
-				}
-				android.view.MotionEvent.ACTION_MOVE -> {
-					val newX = event.rawX + xDelta
-					val newY = event.rawY + yDelta
-					
-					// Constrain to screen bounds
-					val maxX = (view.parent as View).width - view.width
-					val maxY = (view.parent as View).height - view.height
-					
-					view.x = newX.coerceIn(0f, maxX.toFloat())
-					view.y = newY.coerceIn(0f, maxY.toFloat())
-					true
-				}
-				android.view.MotionEvent.ACTION_UP -> {
-					// Save position
-					prefs.edit().putFloat("settings_button_x", view.x).putFloat("settings_button_y", view.y).apply()
-					false
-				}
-				else -> false
-			}
-		}
-		
-		// Restore saved position
-		val savedX = prefs.getFloat("settings_button_x", -1f)
-		val savedY = prefs.getFloat("settings_button_y", -1f)
-		if (savedX >= 0 && savedY >= 0) {
-			settingsButton.x = savedX
-			settingsButton.y = savedY
-		}
-		
-		// Add click listener with Admin PIN protection
 		settingsButton.setOnClickListener {
-			showAdminPinDialog { authenticated ->
-				if (authenticated) {
-					showFloatingSettingsMenu()
-				}
-			}
-		}
-		
-		// Add long click listener for quick access (still requires PIN)
-		settingsButton.setOnLongClickListener {
-			showAdminPinDialog { authenticated ->
-				if (authenticated) {
-					showAdvancedSettingsMenu()
-				}
-			}
-			true
+			showPrinterSettingsPopup()
 		}
 		
 		return settingsButton
 	}
-	
-	/**
-	 * Show Admin PIN dialog for protected settings access
-	 */
-	private fun showAdminPinDialog(onAuthenticated: (Boolean) -> Unit) {
-		val pinEditText = EditText(this)
-		pinEditText.inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
-		pinEditText.hint = "Enter Admin PIN"
-		
-		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-			.setTitle("Admin Access Required")
-			.setMessage("Please enter Admin PIN to access settings")
-			.setView(pinEditText)
-			.setPositiveButton("OK") { _, _ ->
-				val enteredPin = pinEditText.text.toString()
-				val adminPin = prefs.getString("admin_pin", "1234") // Default PIN: 1234
-				
-				if (enteredPin == adminPin) {
-					onAuthenticated(true)
-				} else {
-					Toast.makeText(this, "Invalid PIN", Toast.LENGTH_SHORT).show()
-					onAuthenticated(false)
-				}
-			}
-			.setNegativeButton("Cancel") { _, _ ->
-				onAuthenticated(false)
-			}
-			.create()
-		
-		dialog.show()
-	}
-	
-	/**
-	 * Show floating settings menu with all options
-	 */
-	private fun showFloatingSettingsMenu() {
-		val options = arrayOf(
-			"Printer Settings",
-			"Change Domain",
-			"Export Settings",
-			"Logout / Reset App"
-		)
-		
-		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-			.setTitle("⚙️ Settings")
-			.setItems(options) { _, which ->
-				when (which) {
-					0 -> showPrinterSettingsPopup()
-					1 -> showChangeDomainDialog()
-					2 -> exportAllSettings()
-					3 -> showLogoutResetDialog()
-				}
-			}
-			.setNegativeButton("Cancel", null)
-			.create()
-		
-		dialog.show()
-	}
-	
-	/**
-	 * Show dialog to change domain
-	 */
-	private fun showChangeDomainDialog() {
-		val domainEditText = EditText(this)
-		domainEditText.hint = "Enter domain (e.g., outlet.elintpos.in)"
-		domainEditText.setText(prefs.getString("selected_domain", ""))
-		
-		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-			.setTitle("Change Domain")
-			.setMessage("Enter the new domain/outlet")
-			.setView(domainEditText)
-			.setPositiveButton("Save") { _, _ ->
-				val newDomain = domainEditText.text.toString().trim()
-				if (newDomain.isNotEmpty()) {
-					prefs.edit().putString("selected_domain", newDomain).apply()
-					
-					// Reload WebView with new domain
-					val url = if (newDomain.startsWith("http")) newDomain else "https://$newDomain/"
-					webView.loadUrl(url)
-					
-					Toast.makeText(this, "Domain changed. Reloading...", Toast.LENGTH_SHORT).show()
-				}
-			}
-			.setNegativeButton("Cancel", null)
-			.create()
-		
-		dialog.show()
-	}
-	
-	/**
-	 * Export all settings to JSON
-	 */
-	private fun exportAllSettings() {
-		try {
-			val settingsJson = org.json.JSONObject().apply {
-				put("customer_name", prefs.getString("customer_name", ""))
-				put("mobile_number", prefs.getString("mobile_number", ""))
-				put("selected_domain", prefs.getString("selected_domain", ""))
-				put("selected_domain_name", prefs.getString("selected_domain_name", ""))
-				put("footer_text", prefs.getString("footer_text", ""))
-				put("printer_profiles", printerConfigManager.exportProfiles())
-				put("exported_at", System.currentTimeMillis())
-			}
-			
-			// Save to SharedPreferences as backup
-			prefs.edit().putString("settings_backup_json", settingsJson.toString()).apply()
-			
-			Toast.makeText(this, "Settings exported successfully!", Toast.LENGTH_SHORT).show()
-		} catch (e: Exception) {
-			Toast.makeText(this, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
-		}
-	}
-	
-	/**
-	 * Show logout/reset app dialog
-	 */
-	private fun showLogoutResetDialog() {
-		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-			.setTitle("Logout / Reset App")
-			.setMessage("This will clear all settings and return to initial setup. Are you sure?")
-			.setPositiveButton("Yes, Reset") { _, _ ->
-				// Clear all settings
-				prefs.edit().clear().apply()
-				printerConfigManager.clearAllProfiles()
-				
-				// Navigate to InitialSetupActivity
-				val intent = Intent(this, InitialSetupActivity::class.java)
-				intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-				startActivity(intent)
-				finish()
-			}
-			.setNegativeButton("Cancel", null)
-			.create()
-		
-		dialog.show()
-	}
 
-	private fun showAdvancedSettingsMenu() {
-		val options = arrayOf(
-			"Quick Settings",
-			"Printer Settings UI",
-			"Full Printer Management",
-			"Settings Demo Page",
-			"Test All Printers",
-			"Printer Diagnostics",
-			"Export Settings",
-			"Import Settings"
-		)
-		
-		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-			.setTitle("⚙️ Advanced Printer Settings")
-			.setItems(options) { _, which ->
-				when (which) {
-					0 -> showQuickSettingsPopup()
-					1 -> openPrinterSettingsUI()
-					2 -> openPrinterManagement()
-					3 -> openSettingsDemo()
-					4 -> testAllPrinters()
-					5 -> showPrinterDiagnostics()
-					6 -> exportPrinterSettings()
-					7 -> importPrinterSettings()
-				}
-			}
-			.setNegativeButton("Cancel", null)
-			.create()
-		
-		dialog.show()
-	}
+    internal fun showPrinterSettingsPopup() {
+        val profile = printerConfigManager.getLastUsedProfile()
+            ?: printerConfigManager.getAllProfiles().firstOrNull { it.enabled }
 
-	private fun testAllPrinters() {
-		try {
-			val profiles = printerConfigManager.getAllProfiles()
-			var successCount = 0
-			var totalCount = profiles.size
-			
-			profiles.forEach { profile ->
-				try {
-					val testResult = printerTester.testPrinterProfile(profile)
-					if (testResult.success) {
-						successCount++
-					}
-				} catch (e: Exception) {
-					// Individual test failed, continue with others
-				}
-			}
-			
-			Toast.makeText(this, "Tested $successCount/$totalCount printers successfully", Toast.LENGTH_LONG).show()
-		} catch (e: Exception) {
-			Toast.makeText(this, "Test error: ${e.message}", Toast.LENGTH_SHORT).show()
-		}
-	}
+        if (profile == null) {
+            openPrinterManagement()
+            return
+        }
 
-	private fun showPrinterDiagnostics() {
-		try {
-			val diagnostics = printerTester.runDiagnostics()
+        val isConnected = isBtConnected || isUsbConnected || isLanConnected
+        val paperSize = when (profile.paperWidth) {
+            PrinterConfigManager.PAPER_58MM -> "58mm"
+            PrinterConfigManager.PAPER_80MM -> "80mm"
+            PrinterConfigManager.PAPER_90MM -> "90mm"
+            PrinterConfigManager.PAPER_112MM -> "112mm"
+            else -> "${profile.paperWidth} dots"
+        }
+
 			val message = buildString {
-				appendLine("Printer Diagnostics:")
-				appendLine("Bluetooth: ${if (diagnostics["bluetooth_available"] == true) "Available" else "Not Available"}")
-				appendLine("USB Devices: ${diagnostics["usb_devices_count"]}")
-				appendLine("Network: ${if (diagnostics["network_connected"] == true) "Connected" else "Disconnected"}")
-				appendLine("ESC/POS Printing: ${if (diagnostics["escpos_available"] == true) "Available" else "Not Available"}")
-				appendLine("USB Printing: ${if (diagnostics["usb_printing_available"] == true) "Available" else "Not Available"}")
-				appendLine("Bluetooth Printing: ${if (diagnostics["bluetooth_printing_available"] == true) "Available" else "Not Available"}")
-				appendLine("LAN Printing: ${if (diagnostics["lan_printing_available"] == true) "Available" else "Not Available"}")
-				appendLine("Epson SDK: ${if (diagnostics["epson_sdk_available"] == true) "Available" else "Not Available (ESC/POS works)"}")
-				appendLine("XPrinter SDK: ${if (diagnostics["xprinter_sdk_available"] == true) "Available" else "Not Available (ESC/POS works)"}")
+            appendLine("🖨️ ${profile.name}")
+            appendLine()
+            appendLine("Status: ${if (isConnected) "✅ Connected" else "❌ Not Connected"}")
+            appendLine("Paper Size: $paperSize")
 			}
 			
 			val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-				.setTitle("🔍 Printer Diagnostics")
+            .setTitle("Printer Settings")
 				.setMessage(message)
-				.setPositiveButton("OK", null)
-				.create()
-			dialog.show()
-		} catch (e: Exception) {
-			Toast.makeText(this, "Diagnostics error: ${e.message}", Toast.LENGTH_SHORT).show()
-		}
-	}
-
-	private fun exportPrinterSettings() {
-		try {
-			val profiles = printerConfigManager.exportProfiles()
-			val profileCount = printerConfigManager.getAllProfiles().size
-			// In a real implementation, you would save this to a file or share it
-			Toast.makeText(this, "Settings exported successfully! ($profileCount profiles)", Toast.LENGTH_SHORT).show()
-		} catch (e: Exception) {
-			Toast.makeText(this, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
-		}
-	}
-
-	private fun importPrinterSettings() {
-		// In a real implementation, you would show a file picker or input dialog
-		Toast.makeText(this, "Import functionality would open file picker", Toast.LENGTH_SHORT).show()
-	}
-
-	private fun showPrinterSettingsPopup() {
-		val options = arrayOf(
-			"Printer Settings UI",
-			"Quick Settings", 
-			"Full Printer Management"
-		)
-		
-		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-			.setTitle("🖨️ Printer Configuration")
-			.setItems(options) { _, which ->
-				when (which) {
-					0 -> openPrinterSettingsUI()
-					1 -> showQuickSettingsPopup()
-					2 -> openPrinterManagement()
-				}
-			}
-			.setNegativeButton("Cancel", null)
+            .setPositiveButton("Test Print") { _, _ ->
+                testQuickPrintFromSettings(profile)
+            }
+            .setNeutralButton("Advanced Settings") { _, _ ->
+                openPrinterManagement()
+            }
+            .setNegativeButton("Close", null)
 			.create()
 		
 		dialog.show()
 	}
 
-	private fun showQuickSettingsPopup() {
-		val quickSettingsView = createQuickSettingsView()
-		val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-			.setTitle("⚙️ Quick Printer Settings")
-			.setView(quickSettingsView)
-			.setPositiveButton("Apply", null)
-			.setNegativeButton("Cancel", null)
-			.create()
-		
-		dialog.show()
-		
-		// Handle apply button click
-		dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-			applyQuickSettings(quickSettingsView, dialog)
-		}
-	}
-
-	private fun createQuickSettingsView(): android.view.View {
-		val layout = android.widget.LinearLayout(this)
-		layout.orientation = android.widget.LinearLayout.VERTICAL
-		layout.setPadding(50, 30, 50, 30)
-		
-		// Paper width setting
-		val paperWidthLayout = android.widget.LinearLayout(this)
-		paperWidthLayout.orientation = android.widget.LinearLayout.HORIZONTAL
-		paperWidthLayout.setPadding(0, 10, 0, 10)
-		
-		val paperWidthLabel = android.widget.TextView(this)
-		paperWidthLabel.text = "Paper Width:"
-		paperWidthLabel.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-		
-		val paperWidthSpinner = android.widget.Spinner(this)
-		val paperWidthAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_item, 
-			arrayOf("58mm (384 dots)", "80mm (576 dots)", "112mm (832 dots)"))
-		paperWidthAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-		paperWidthSpinner.adapter = paperWidthAdapter
-		paperWidthSpinner.tag = "paperWidth"
-		paperWidthSpinner.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-		
-		paperWidthLayout.addView(paperWidthLabel)
-		paperWidthLayout.addView(paperWidthSpinner)
-		
-		// Line spacing setting
-		val lineSpacingLayout = android.widget.LinearLayout(this)
-		lineSpacingLayout.orientation = android.widget.LinearLayout.HORIZONTAL
-		lineSpacingLayout.setPadding(0, 10, 0, 10)
-		
-		val lineSpacingLabel = android.widget.TextView(this)
-		lineSpacingLabel.text = "Line Spacing:"
-		lineSpacingLabel.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-		
-		val lineSpacingSeekBar = android.widget.SeekBar(this)
-		lineSpacingSeekBar.max = 100
-		lineSpacingSeekBar.progress = 30
-		lineSpacingSeekBar.tag = "lineSpacing"
-		lineSpacingSeekBar.layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-		
-		val lineSpacingValue = android.widget.TextView(this)
-		lineSpacingValue.text = "30"
-		lineSpacingValue.tag = "lineSpacingValue"
-		lineSpacingValue.layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
-		
-		lineSpacingSeekBar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-			override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
-				lineSpacingValue.text = progress.toString()
-			}
-			override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
-			override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
-		})
-		
-		lineSpacingLayout.addView(lineSpacingLabel)
-		lineSpacingLayout.addView(lineSpacingSeekBar)
-		lineSpacingLayout.addView(lineSpacingValue)
-		
-		// Test print button
-		val testPrintButton = android.widget.Button(this)
-		testPrintButton.text = "Test Print"
-		testPrintButton.setPadding(0, 20, 0, 20)
-		testPrintButton.setOnClickListener {
-			testQuickPrint(layout)
-		}
-		
-		layout.addView(paperWidthLayout)
-		layout.addView(lineSpacingLayout)
-		layout.addView(testPrintButton)
-		
-		return layout
-	}
-
-	private fun applyQuickSettings(view: android.view.View, dialog: androidx.appcompat.app.AlertDialog) {
-		try {
-			val paperWidthSpinner = view.findViewWithTag<android.widget.Spinner>("paperWidth")
-			val lineSpacingSeekBar = view.findViewWithTag<android.widget.SeekBar>("lineSpacing")
-			
-			val paperWidths = intArrayOf(384, 576, 832)
-			val paperWidth = paperWidths[paperWidthSpinner.selectedItemPosition]
-			val lineSpacing = lineSpacingSeekBar.progress
-			
-			// Apply settings to default print config
-			defaultPrintConfig = PrintConfig(
-				leftMargin = 0,
-				rightMargin = 0,
-				lineSpacing = lineSpacing,
-				widthMul = 0,
-				heightMul = 0,
-				pageWidthDots = paperWidth,
-				linesPerPage = 0
-			)
-			
-			Toast.makeText(this, "Settings applied successfully!", Toast.LENGTH_SHORT).show()
-			dialog.dismiss()
-		} catch (e: Exception) {
-			Toast.makeText(this, "Error applying settings: ${e.message}", Toast.LENGTH_SHORT).show()
-		}
-	}
-
-	private fun testQuickPrint(view: android.view.View) {
-		try {
-			val paperWidthSpinner = view.findViewWithTag<android.widget.Spinner>("paperWidth")
-			val lineSpacingSeekBar = view.findViewWithTag<android.widget.SeekBar>("lineSpacing")
-			
-			val paperWidths = intArrayOf(384, 576, 832)
-			val paperWidth = paperWidths[paperWidthSpinner.selectedItemPosition]
-			val lineSpacing = lineSpacingSeekBar.progress
-			
+    private fun testQuickPrintFromSettings(profile: PrinterConfigManager.PrinterConfig) {
 			val testText = """
 				================================
-				QUICK SETTINGS TEST PRINT
+			PRINTER TEST
 				================================
 				
-				Paper Width: ${paperWidth} dots
-				Line Spacing: ${lineSpacing}
-				
-				This is a test of the quick settings
-				configuration. If you can read this
-				clearly, the settings are working
-				correctly.
-				
-				Time: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}
+			Printer: ${profile.name}
+			Paper: ${profile.paperWidth} dots
+			
+			If you can read this,
+			your printer is working correctly!
+			
+			Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}
 				
 				================================
 				END OF TEST
 				================================
 			""".trimIndent()
 			
-			// Use unified printer handler - automatically uses configured printer SDK
-			val result = unifiedPrinterHandler.print(testText, "auto")
-			
-			if (result.success) {
-				Toast.makeText(this, "Test print sent successfully!", Toast.LENGTH_SHORT).show()
+        CoroutineScope(Dispatchers.IO).launch {
+            val result = unifiedPrinterHandler.print(testText, profile.type)
+            runOnUiThread {
+                if (result.success) {
+                    Toast.makeText(this@MainActivity, "Test print sent successfully!", Toast.LENGTH_SHORT).show()
+                } else {
+                    showPrintFailedDialog(result.message, testText, profile.type)
+                }
+            }
+        }
+    }
+
+    private fun showPrintFailedDialog(errorMessage: String, textToPrint: String, printerType: String) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("❌ Print Failed")
+            .setMessage("Print failed: $errorMessage\n\nPlease check:\n• Printer is powered on\n• Printer is connected\n• Paper is loaded")
+            .setPositiveButton("Retry") { _, _ ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    val result = unifiedPrinterHandler.print(textToPrint, printerType)
+                    runOnUiThread {
+                        if (result.success) {
+                            Toast.makeText(this@MainActivity, "Print successful!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            showPrintFailedDialog(result.message, textToPrint, printerType)
+                        }
+                    }
+                }
+            }
+            .setNeutralButton("Printer Settings") { _, _ ->
+                openPrinterManagement()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+	}
+
+	internal fun openPrinterManagement() {
+		try {
+			if (::webView.isInitialized) {
+				webView.loadUrl("file:///android_asset/printer_management.html")
 			} else {
-				Toast.makeText(this, "Print failed: ${result.message}", Toast.LENGTH_LONG).show()
+				Log.e(TAG, "WebView not initialized when trying to open printer management")
 			}
 		} catch (e: Exception) {
-			Toast.makeText(this, "Test print error: ${e.message}", Toast.LENGTH_SHORT).show()
+			Log.e(TAG, "Error opening printer management", e)
+			Toast.makeText(this, "Error opening printer settings", Toast.LENGTH_SHORT).show()
 		}
-	}
-
-	private fun openPrinterManagement() {
-		webView.loadUrl("file:///android_asset/printer_management.html")
-	}
-
-	private fun openSettingsDemo() {
-		webView.loadUrl("file:///android_asset/settings_demo.html")
-	}
-
-	private fun openPrinterSettingsUI() {
-		webView.loadUrl("file:///android_asset/printer_settings_ui.html")
 	}
 
 	@SuppressLint("SetJavaScriptEnabled")
 	private fun configureWebView(view: WebView) {
-		CookieManager.getInstance().setAcceptCookie(true)
-		CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+		try {
+			CookieManager.getInstance().setAcceptCookie(true)
+			CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
 
-		with(view.settings) {
-			javaScriptEnabled = true
-			domStorageEnabled = true
-			databaseEnabled = true
-			setSupportMultipleWindows(true)
-			javaScriptCanOpenWindowsAutomatically = true
-			mediaPlaybackRequiresUserGesture = false
-			useWideViewPort = true
-			loadWithOverviewMode = true
-			builtInZoomControls = true
-			displayZoomControls = false
-			mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+			with(view.settings) {
+				javaScriptEnabled = true
+				domStorageEnabled = true
+				databaseEnabled = true
+				setSupportMultipleWindows(true)
+				javaScriptCanOpenWindowsAutomatically = true
+				mediaPlaybackRequiresUserGesture = false
+				// Layout and rendering tweaks to better match Chrome's responsive behavior
+				useWideViewPort = false
+				loadWithOverviewMode = false
+				layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
+				textZoom = 100
+				// Disable zoom controls to avoid unintended scale changes that distort layout
+				builtInZoomControls = false
+				displayZoomControls = false
+				setSupportZoom(false)
+				mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+				
+				// Enable hardware acceleration for better performance
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+					setRenderPriority(WebSettings.RenderPriority.HIGH)
+				}
 
-			userAgentString = userAgentString + USER_AGENT_SUFFIX
+				userAgentString = userAgentString + USER_AGENT_SUFFIX
+			}
+
+			view.isFocusable = true
+			view.isFocusableInTouchMode = true
+			view.overScrollMode = WebView.OVER_SCROLL_NEVER
+		} catch (e: Exception) {
+			Log.e(TAG, "Error configuring WebView", e)
+			throw e
 		}
-
-		view.isFocusable = true
-		view.isFocusableInTouchMode = true
-		view.overScrollMode = WebView.OVER_SCROLL_NEVER
 
 		view.webViewClient = object : WebViewClient() {
 			override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
 				super.onPageStarted(view, url, favicon)
-				try {
-					val u = url ?: return
-					val parsed = Uri.parse(u)
-					val host = parsed.host ?: return
-					if (!host.endsWith(BASE_DOMAIN)) return
-					val path = parsed.encodedPath ?: ""
-					// For report pages, reload immediately with headers to avoid a visible 403 before retry
-					if ((path.contains("/reports") || path.contains("/report") || path.contains("profit") || path.contains("loss"))
-						&& !retried403Urls.contains(u)) {
-						retried403Urls.add(u)
-						val headers = mutableMapOf<String, String>()
-						headers["X-Requested-With"] = "XMLHttpRequest"
-						headers["Referer"] = try { webView.url ?: BASE_URL } catch (_: Exception) { BASE_URL }
-						try { view?.stopLoading() } catch (_: Exception) {}
-						view?.post { view.loadUrl(u, headers) }
-					}
-				} catch (_: Exception) { }
+				Log.d(TAG, "Page started loading: $url")
 			}
+			
 			override fun onPageFinished(view: WebView?, url: String?) {
 				super.onPageFinished(view, url)
-				
-				android.util.Log.d("ElintPOS_WebView", "Page finished loading: $url")
-				
-				// Ensure JavaScript interface is available on all pages
-				view?.evaluateJavascript("""
-					console.log('=== ElintPOS Interface Check ===');
-					console.log('Current URL:', window.location.href);
-					console.log('ElintPOSNative available:', typeof window.ElintPOSNative !== 'undefined');
+                Log.d(TAG, "Page finished loading: $url")
+			}
+			
+			@Suppress("DEPRECATION")
+			override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
+				Log.e(TAG, "WebView error: Code=$errorCode, Description=$description, URL=$failingUrl")
+				if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+					// For older Android versions
+					runOnUiThread {
+						Toast.makeText(
+							this@MainActivity,
+							"Error loading page: ${description ?: "Unknown error"}",
+							Toast.LENGTH_LONG
+						).show()
+					}
+				}
+			}
+			
+			override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+					val url = request?.url?.toString() ?: "unknown"
+					val errorCode = error?.errorCode ?: 0
+					val description = error?.description?.toString() ?: "Unknown error"
+					Log.e(TAG, "WebView error: Code=$errorCode, Description=$description, URL=$url")
 					
-					if (typeof window.ElintPOSNative === 'undefined') {
-						console.error('❌ ElintPOSNative interface NOT available on this page');
-						console.log('Attempting to reconnect...');
-						
-						// Try to access the interface after a short delay
-						setTimeout(function() {
-							if (typeof window.ElintPOSNative !== 'undefined') {
-								console.log('✅ ElintPOSNative interface is now available');
-								// Test the interface
-								try {
-									const testResult = window.ElintPOSNative.checkInterfaceAvailable();
-									console.log('Interface test result:', testResult);
-								} catch (e) {
-									console.error('Interface test failed:', e);
-								}
-							} else {
-								console.error('❌ ElintPOSNative interface still not available after retry');
-								// Show user-friendly message
-								if (window.alert) {
-									window.alert('Print functionality not available on this page. Please refresh or go back to the main page.');
-								}
-							}
-						}, 200);
-					} else {
-						console.log('✅ ElintPOSNative interface is available');
-						// Test the interface to make sure it's working
-						try {
-							const testResult = window.ElintPOSNative.checkInterfaceAvailable();
-							console.log('Interface test result:', testResult);
-						} catch (e) {
-							console.error('Interface test failed:', e);
+					// Check if it's the main frame (page load) error
+					if (request?.isForMainFrame == true) {
+						runOnUiThread {
+							Toast.makeText(
+								this@MainActivity,
+								"Error loading page: $description",
+								Toast.LENGTH_LONG
+							).show()
 						}
 					}
-					console.log('=== End Interface Check ===');
-				""", null)
-				
-				// Inject a window.print override that sends the page text to native printing
-				val js = """
-					(function(){
-						try{
-							if(window.__elintposPatched) return; window.__elintposPatched = true;
-                            function __elintposSmartPrint(txt, prefer){
-								try{
-									if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.vendorAvailable && ElintPOSNative.vendorAvailable()){
-										try{ var r = ElintPOSNative.vendorPrintText(String(txt||'')); if(r && String(r).indexOf('"ok":true')>=0) return true; }catch(_){ }
-									}
-									if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.printFromWeb){
-										ElintPOSNative.printFromWeb(String(txt||document.body.innerText||''), String(prefer||'auto'));
-										return true;
-									}
-								}catch(_){ }
-                                // Do not fallback to system print automatically
-								return false;
-							}
-							window.ElintPOS = {
-								print: function(txt, prefer){ return __elintposSmartPrint(String(txt||document.body.innerText||''), String(prefer||'auto')); },
-                                printSelector: function(selector){
-									try{
-										var el = document.querySelector(selector);
-                                        if(!el){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('No printable content'); } }catch(_){ } return; }
-										var original = document.body.innerHTML;
-										document.body.setAttribute('data-elintpos','printing');
-										document.body.innerHTML = el.outerHTML;
-                                        try{ if(!__elintposSmartPrint(String(el.innerText||''), 'auto')){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('No printer connected'); } }catch(_){ } } }catch(e){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('Print failed'); } }catch(_){ } }
-										setTimeout(function(){ try{ document.body.innerHTML = original; }catch(_){} }, 1500);
-                                    }catch(e){ try{ if(ElintPOSNative && ElintPOSNative.showToast){ ElintPOSNative.showToast('Print failed'); } }catch(_){ } }
-								},
-								status: function(){ return ElintPOSNative.getPrinterStatus(); }
-							};
-							// Override window.print to use direct print or system dialog based on settings
-							try {
-								window.print = function(){
-									try {
-										if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.systemPrint) {
-											// systemPrint will check the preference and either:
-											// - Direct print using configured printer with configured paper size (if checkbox unchecked)
-											// - Show Android print dialog (if checkbox checked)
-											ElintPOSNative.systemPrint('POS Print');
-											return true;
-										}
-									} catch(e) {
-										console.error('Print error:', e);
-									}
-									return false;
-								};
-							} catch(e) {
-								console.error('Failed to override window.print:', e);
-							}
-							// Force target=_blank links and window.open to stay in same WebView
-							try{ window.open = function(u){ try{ location.href = u; }catch(e){} return null; }; }catch(_){ }
-							try{
-								var bl = document.querySelectorAll('a[target="_blank"]');
-								for(var i=0;i<bl.length;i++){ bl[i].setAttribute('target','_self'); }
-							}catch(_){ }
-							// Auto-binding removed; printing now occurs only via window.print() or ElintPOS APIs
-						}catch(e){}
-					})();
-				"""
-				view?.evaluateJavascript(js, null)
-				// Suspended Sales pagination handling and modal fallback
-				view?.evaluateJavascript("""
-					(function(){
-						try{
-							if (window.__elintposSuspendHooked) return;
-							window.__elintposSuspendHooked = true;
-
-							function isSuspendedSalesContext(){
-								var h = document.querySelector('h1,h2,h3');
-								var t = ((h && h.textContent) || '').toLowerCase();
-								var bodyText = ((document.body && document.body.innerText) || '').toLowerCase();
-								return t.indexOf('suspended sales')>=0 || bodyText.indexOf('suspended sales')>=0;
-							}
-
-							function ensureSuspendedModal(){
-								if (!isSuspendedSalesContext()) return;
-								if (document.querySelector('.modal, .__el_modal')) return; // already modal-like
-								var content = document.body.innerHTML;
-								var style = document.createElement('style');
-								style.textContent = '\n.__el_modal_backdrop{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.45);z-index:9998;}\n.__el_modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:80vw;max-width:860px;max-height:80vh;overflow:auto;background:#ffffff;border-radius:6px;box-shadow:0 10px 28px rgba(0,0,0,.24);z-index:9999;padding:18px;}\n.__el_modal h1,.__el_modal h2,.__el_modal h3{margin-top:0;}\n.__el_modal_body .panel,.__el_modal_body .well{background:#6BD1EB;color:#003447;border-radius:4px;padding:12px;}\n.__el_pager{display:flex;gap:6px;justify-content:center;margin:12px 0;}\n';
-								try{ document.head.appendChild(style); }catch(_){ }
-								document.body.innerHTML = '<div class="__el_modal_backdrop"></div><div class="__el_modal"><div class="__el_modal_body">'+content+'</div></div>';
-							}
-
-							function handleSuspendedPagination(e){
-								var a = e.target && e.target.closest ? e.target.closest('a') : null;
-								if(!a) return;
-								var href = a.getAttribute('href')||'';
-								if(!href) return;
-								if(!(isSuspendedSalesContext() || /suspend|suspended/i.test(href))) return;
-								if(!(/page=\d+/.test(href) || /\b(last|first|next|prev)/i.test(a.textContent||''))) return;
-								e.preventDefault();
-								var body = document.querySelector('.modal-body, .__el_modal_body') || document.body;
-								try{
-									fetch(href, { headers: { 'X-Requested-With':'XMLHttpRequest' } })
-										.then(function(r){ return r.text(); })
-										.then(function(html){
-											body.innerHTML = html;
-											ensureSuspendedModal();
-										});
-								}catch(_){
-									location.href = href;
-								}
-							}
-
-							document.addEventListener('click', handleSuspendedPagination, true);
-							ensureSuspendedModal();
-						}catch(e){}
-					})();
-				""", null)
-				// Auto-print functionality removed - manual print only
+				}
 			}
 
 			override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
 				if (request == null) return false
 				val uri = request.url
 
-				// Handle pos/view navigation - keep in same WebView to maintain interface
 				try {
 					val path = uri.encodedPath ?: ""
-					// Allow all logout redirects - user can logout from anywhere
 					if (path.contains("/auth/logout") || path.endsWith("/logout")) {
-						android.util.Log.d("ElintPOS", "Allowing logout redirect: $uri")
-						// Let the logout proceed - don't block it
+                        Log.d("ElintPOS", "Allowing logout redirect: $uri")
 						return false
 					}
-					// For pos/view pages, load in same WebView to maintain JavaScript interface
 					if (path.contains("/pos/view/") || path.contains("/sales/view/")) {
-						android.util.Log.d("ElintPOS_WebView", "Loading pos/view page: $uri")
-						// Load in same WebView and ensure JavaScript interface is available
+                        Log.d("ElintPOS_WebView", "Loading pos/view page: $uri")
 						view?.loadUrl(uri.toString())
-						// Re-inject JavaScript interface after page load
-						view?.postDelayed({
-							view?.evaluateJavascript("""
-								if (typeof window.ElintPOSNative === 'undefined') {
-									console.log('Re-injecting ElintPOSNative interface for pos/view page');
-									// Interface will be available after page load
-								}
-							""", null)
-						}, 500)
 						return true
 					}
-				} catch (_: Exception) {}
+                } catch (_: Exception) {
+                }
 
 				val scheme = uri.scheme ?: return false
 				when (scheme) {
@@ -3427,6 +516,7 @@ class MainActivity : ComponentActivity() {
 						openExternalIntent(Intent(Intent.ACTION_VIEW, uri))
 						return true
 					}
+
 					"intent" -> {
 						try {
 							val intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
@@ -3438,16 +528,17 @@ class MainActivity : ComponentActivity() {
 					}
 				}
 
-				// Stay within WebView for our domain; otherwise let OS handle http/https externals
 				val host = uri.host ?: return false
-				return if (host.endsWith(BASE_DOMAIN)) {
-					// For report pages (e.g., Profit & Loss), add safe headers to avoid server 403 on range change
+				return if (host.endsWith(getBaseDomain())) {
 					val path = uri.encodedPath ?: ""
 					if (path.contains("/reports") || path.contains("/report") || path.contains("profit") || path.contains("loss")) {
 						val headers = mutableMapOf<String, String>()
 						headers["X-Requested-With"] = "XMLHttpRequest"
-						// Use current page as referer when available
-						headers["Referer"] = try { webView.url ?: BASE_URL } catch (_: Exception) { BASE_URL }
+                        headers["Referer"] = try {
+                            webView.url ?: getBaseUrl()
+                        } catch (_: Exception) {
+                            getBaseUrl()
+                        }
 						view?.loadUrl(uri.toString(), headers)
 						return true
 					}
@@ -3460,8 +551,39 @@ class MainActivity : ComponentActivity() {
 
 
 			override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-				// Avoid app crash on misconfigured certs while viewing receipts. Prefer proceed; fix server SSL in production.
-				try { handler?.proceed() } catch (_: Exception) { handler?.cancel() }
+                try {
+                    val url = error?.url ?: "unknown"
+                    val primaryError = error?.primaryError ?: 0
+                    val baseDomain = getBaseDomain()
+                    Log.w(TAG, "SSL Error for $url: Primary error code $primaryError, Base domain: $baseDomain")
+
+                    val host = try {
+                        Uri.parse(url).host
+                    } catch (_: Exception) {
+                        null
+                    }
+
+                    Log.d(TAG, "SSL Error - Host: $host, Base domain: $baseDomain")
+                    
+                    // Allow SSL errors for the base domain and its subdomains
+                    if (host != null && (host == baseDomain || host.endsWith(".$baseDomain"))) {
+                        Log.w(TAG, "Allowing SSL error for trusted domain: $host")
+                        handler?.proceed()
+                    } else {
+                        Log.e(TAG, "SSL error for untrusted domain: $host - connection cancelled")
+                        handler?.cancel()
+                        this@MainActivity.runOnUiThread {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "SSL certificate error. Connection cancelled for security.\nDomain: $host",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling SSL error", e)
+                    handler?.cancel()
+                }
 			}
 
 			override fun onReceivedHttpError(
@@ -3473,27 +595,33 @@ class MainActivity : ComponentActivity() {
 					val status = errorResponse?.statusCode ?: return
 					if (request?.isForMainFrame == true && status == 403) {
 						val badUrl = request.url?.toString() ?: return
-						// Retry once with headers to avoid showing the server error page
 						if (!retried403Urls.contains(badUrl)) {
 							retried403Urls.add(badUrl)
 							val headers = mutableMapOf<String, String>()
 							headers["X-Requested-With"] = "XMLHttpRequest"
-							headers["Referer"] = try { webView.url ?: BASE_URL } catch (_: Exception) { BASE_URL }
+                            headers["Referer"] = try {
+                                webView.url ?: getBaseUrl()
+                            } catch (_: Exception) {
+                                getBaseUrl()
+                            }
 							view?.post { view.loadUrl(badUrl, headers) }
 							return
 						}
-						// If already retried, just go back to last good page instead of showing the error
 						view?.post {
-							if (webView.canGoBack()) webView.goBack() else webView.loadUrl(BASE_URL)
+							if (webView.canGoBack()) webView.goBack() else webView.loadUrl(getBaseUrl())
 						}
 					}
-				} catch (_: Exception) { }
+                } catch (_: Exception) {
+                }
 			}
 		}
 
 		view.webChromeClient = object : WebChromeClient() {
             override fun onJsAlert(
-                view: WebView?, url: String?, message: String?, result: android.webkit.JsResult?
+                view: WebView?,
+                url: String?,
+                message: String?,
+                result: android.webkit.JsResult?
             ): Boolean {
                 try {
                     val dlg = androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
@@ -3501,49 +629,74 @@ class MainActivity : ComponentActivity() {
                         .setMessage(message ?: "")
                         .setCancelable(false)
                         .setPositiveButton(android.R.string.ok) { d, _ ->
-                            try { result?.confirm() } catch (_: Exception) {}
+                            try {
+                                result?.confirm()
+                            } catch (_: Exception) {
+                            }
                             d.dismiss()
                         }
                         .create()
                     dlg.show()
                 } catch (_: Exception) {
-                    try { result?.confirm() } catch (_: Exception) {}
+                    try {
+                        result?.confirm()
+                    } catch (_: Exception) {
+                    }
                 }
                 return true
             }
 
             override fun onJsConfirm(
-                view: WebView?, url: String?, message: String?, result: android.webkit.JsResult?
+                view: WebView?,
+                url: String?,
+                message: String?,
+                result: android.webkit.JsResult?
             ): Boolean {
                 try {
                     val dlg = androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
                         .setTitle("Confirm")
                         .setMessage(message ?: "")
                         .setPositiveButton(android.R.string.ok) { d, _ ->
-                            try { result?.confirm() } catch (_: Exception) {}
+                            try {
+                                result?.confirm()
+                            } catch (_: Exception) {
+                            }
                             d.dismiss()
                         }
                         .setNegativeButton(android.R.string.cancel) { d, _ ->
-                            try { result?.cancel() } catch (_: Exception) {}
+                            try {
+                                result?.cancel()
+                            } catch (_: Exception) {
+                            }
                             d.dismiss()
                         }
                         .create()
                     dlg.show()
                 } catch (_: Exception) {
-                    try { result?.cancel() } catch (_: Exception) {}
+                    try {
+                        result?.cancel()
+                    } catch (_: Exception) {
+                    }
                 }
                 return true
             }
 
             override fun onJsPrompt(
-                view: WebView?, url: String?, message: String?, defaultValue: String?, result: android.webkit.JsPromptResult?
+                view: WebView?,
+                url: String?,
+                message: String?,
+                defaultValue: String?,
+                result: android.webkit.JsPromptResult?
             ): Boolean {
                 return try {
-                    val input = android.widget.EditText(this@MainActivity)
+                    val input = EditText(this@MainActivity)
                     input.setText(defaultValue ?: "")
                     val container = android.widget.LinearLayout(this@MainActivity)
                     container.orientation = android.widget.LinearLayout.VERTICAL
-                    val lp = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
                     lp.setMargins(32, 16, 32, 0)
                     input.layoutParams = lp
                     container.addView(input)
@@ -3552,30 +705,47 @@ class MainActivity : ComponentActivity() {
                         .setTitle(message ?: "Prompt")
                         .setView(container)
                         .setPositiveButton(android.R.string.ok) { d, _ ->
-                            try { result?.confirm(input.text?.toString() ?: "") } catch (_: Exception) {}
+                            try {
+                                result?.confirm(input.text?.toString() ?: "")
+                            } catch (_: Exception) {
+                            }
                             d.dismiss()
                         }
                         .setNegativeButton(android.R.string.cancel) { d, _ ->
-                            try { result?.cancel() } catch (_: Exception) {}
+                            try {
+                                result?.cancel()
+                            } catch (_: Exception) {
+                            }
                             d.dismiss()
                         }
                         .create()
                     dlg.show()
                     true
                 } catch (_: Exception) {
-                    try { result?.cancel() } catch (_: Exception) {}
+                    try {
+                        result?.cancel()
+                    } catch (_: Exception) {
+                    }
                     true
                 }
             }
-			override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
-				// Open new window requests in the same WebView
+
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
 				val transport = resultMsg?.obj as? WebView.WebViewTransport
 				transport?.webView = this@MainActivity.webView
 				resultMsg?.sendToTarget()
 				return true
 			}
-			override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-				// Auto-grant geolocation for this session
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String?,
+                callback: GeolocationPermissions.Callback?
+            ) {
 				callback?.invoke(origin, true, false)
 			}
 
@@ -3593,15 +763,15 @@ class MainActivity : ComponentActivity() {
 				return true
 			}
 
-			override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
-				Log.d(TAG, "Console: ${'$'}{message?.message()} @ ${'$'}{message?.sourceId()}:${'$'}{message?.lineNumber()}")
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean {
+                Log.d(TAG, "Console: ${message?.message()} @ ${message?.sourceId()}:${message?.lineNumber()}")
 				return super.onConsoleMessage(message)
 			}
 		}
 	}
 
 	private fun setupDownloadHandling(view: WebView) {
-		view.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+        view.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
 			try {
 				val request = DownloadManager.Request(Uri.parse(url)).apply {
 					setMimeType(mimeType)
@@ -3636,119 +806,6 @@ class MainActivity : ComponentActivity() {
 		}
 	}
 
-	private fun showPrinterChooserAndPrint(text: String) {
-		try {
-			val items = mutableListOf<String>()
-			val actions = mutableListOf<() -> Unit>()
-
-			// Bluetooth options
-			BluetoothAdapter.getDefaultAdapter()?.bondedDevices?.forEach { d ->
-				items.add("BT: ${'$'}{d.name ?: d.address}")
-				actions.add {
-					try {
-						escPosPrinter?.close()
-						escPosPrinter = BluetoothEscPosPrinter(this)
-						escPosPrinter!!.connect(d)
-						isBtConnected = true
-						escPosPrinter!!.printText(text)
-					} catch (e: Exception) {
-						isBtConnected = false
-						Toast.makeText(this, "BT print failed: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
-					}
-				}
-			}
-
-			// USB options
-			val usbMgr = getSystemService(USB_SERVICE) as UsbManager
-			val usbList = UsbEscPosPrinter(this).listPrinters()
-			usbList.forEach { dev ->
-				items.add("USB: ${'$'}{dev.deviceName} (v=${'$'}{dev.vendorId}, p=${'$'}{dev.productId})")
-				actions.add {
-					try {
-						if (!usbMgr.hasPermission(dev)) {
-							pendingUsbDeviceName = dev.deviceName
-							pendingUsbAfterConnect = {
-								try { usbPrinter?.printText(text) } catch (_: Exception) {}
-							}
-							val pi = android.app.PendingIntent.getBroadcast(
-								this,
-								0,
-								Intent(ACTION_USB_PERMISSION),
-								if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) android.app.PendingIntent.FLAG_MUTABLE else 0
-							)
-							usbMgr.requestPermission(dev, pi)
-							Toast.makeText(this, "Requesting USB permission...", Toast.LENGTH_SHORT).show()
-							return@add
-						}
-						usbPrinter?.close()
-						usbPrinter = UsbEscPosPrinter(this)
-						usbPrinter!!.connect(dev)
-						isUsbConnected = true
-						usbPrinter!!.printText(text)
-					} catch (e: Exception) {
-						isUsbConnected = false
-						Toast.makeText(this, "USB print failed: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
-					}
-				}
-			}
-
-			// Vendor option (if SDK present)
-			if (vendorPrinter.isAvailable()) {
-				items.add("Vendor SDK: Default USB")
-				actions.add {
-					try {
-						val ok = vendorPrinter.printText(text)
-						if (!ok) Toast.makeText(this, "Vendor print failed", Toast.LENGTH_SHORT).show()
-					} catch (e: Exception) {
-						Toast.makeText(this, "Vendor print error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
-					}
-				}
-			}
-
-			// Epson option (if SDK present)
-			if (epsonPrinter.isAvailable()) {
-				items.add("Epson SDK")
-				actions.add {
-					try {
-						val ok = epsonPrinter.printText(text)
-						if (!ok) Toast.makeText(this, "Epson print failed", Toast.LENGTH_SHORT).show()
-					} catch (e: Exception) {
-						Toast.makeText(this, "Epson print error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
-					}
-				}
-			}
-
-			// XPrinter option (if SDK present)
-			if (xPrinter.isAvailable()) {
-				items.add("XPrinter SDK")
-				actions.add {
-					try {
-						val ok = xPrinter.printText(text)
-						if (!ok) Toast.makeText(this, "XPrinter print failed", Toast.LENGTH_SHORT).show()
-					} catch (e: Exception) {
-						Toast.makeText(this, "XPrinter print error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
-					}
-				}
-			}
-
-			if (items.isEmpty()) {
-				Toast.makeText(this, "No printers found", Toast.LENGTH_SHORT).show()
-				return
-			}
-
-			val dlg = androidx.appcompat.app.AlertDialog.Builder(this)
-				.setTitle("Select printer")
-				.setItems(items.toTypedArray()) { _, which ->
-					try { actions[which].invoke() } catch (_: Exception) {}
-				}
-				.setNegativeButton("Cancel", null)
-				.create()
-			dlg.show()
-		} catch (e: Exception) {
-			Toast.makeText(this, "Printer dialog error: ${'$'}{e.message}", Toast.LENGTH_SHORT).show()
-		}
-	}
-
 	private fun setupFileChooserLauncher() {
 		fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
 			val callback = filePathCallback ?: return@registerForActivityResult
@@ -3757,10 +814,8 @@ class MainActivity : ComponentActivity() {
 			if (result.resultCode == RESULT_OK) {
 				val data = result.data
 				if (data == null || data.data == null) {
-					// Possibly camera capture
 					cameraImageUri?.let { results = arrayOf(it) }
 				} else {
-					// Selected from picker
 					data.data?.let { results = arrayOf(it) }
 				}
 			}
@@ -3771,8 +826,7 @@ class MainActivity : ComponentActivity() {
 		}
 	}
 
-	private fun launchFilePicker(params: WebChromeClient.FileChooserParams?) {
-		// Prepare camera capture
+	internal fun launchFilePicker(params: WebChromeClient.FileChooserParams?) {
 		val imageFile = createImageFile()
 		cameraImageUri = FileProvider.getUriForFile(
 			this,
@@ -3784,7 +838,6 @@ class MainActivity : ComponentActivity() {
 			addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
 		}
 
-		// Content picker for any file types accepted by the page
 		val contentIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
 			addCategory(Intent.CATEGORY_OPENABLE)
 			type = params?.acceptTypes?.firstOrNull()?.takeIf { it.isNotBlank() } ?: "*/*"
@@ -3802,145 +855,93 @@ class MainActivity : ComponentActivity() {
 	private fun createImageFile(): File {
 		val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
 		val storageDir = cacheDir
-		return File.createTempFile("IMG_${'$'}timeStamp", ".jpg", storageDir)
+        return File.createTempFile("IMG_${timeStamp}", ".jpg", storageDir)
 	}
 
-	private fun requestNotificationsPermissionIfNeeded() {
+	internal fun requestNotificationsPermissionIfNeeded() {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
 			notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
 		}
 	}
 
-	private fun requestStoragePermissionsIfNeeded() {
-		val permissions = mutableListOf<String>()
-		
-		if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-			permissions.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-		}
-		
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-			permissions.add(android.Manifest.permission.MANAGE_EXTERNAL_STORAGE)
-		}
-		
-		if (permissions.isNotEmpty()) {
-			storagePermissionLauncher.launch(permissions.toTypedArray())
-		}
-	}
-
-	private fun buildCommonPermissions(): Array<String> {
-		val list = mutableListOf<String>()
-		// Camera & audio
-		list.add(android.Manifest.permission.CAMERA)
-		list.add(android.Manifest.permission.RECORD_AUDIO)
-		// Location
-		list.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
-		list.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
-		// Bluetooth
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-			list.add(android.Manifest.permission.BLUETOOTH_CONNECT)
-			list.add(android.Manifest.permission.BLUETOOTH_SCAN)
-		}
-		// Storage / media (scoped)
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			list.add(android.Manifest.permission.READ_MEDIA_IMAGES)
-			list.add(android.Manifest.permission.READ_MEDIA_VIDEO)
-			list.add(android.Manifest.permission.READ_MEDIA_AUDIO)
-		} else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-			list.add(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-			if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-				list.add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+	override fun onResume() {
+		super.onResume()
+		try {
+			if (::webView.isInitialized) {
+				webView.onResume()
 			}
+		} catch (e: Exception) {
+			Log.e(TAG, "Error in onResume", e)
 		}
-		// Notifications (Android 13+)
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			list.add(android.Manifest.permission.POST_NOTIFICATIONS)
-		}
-		// Nearby Wi-Fi (Android 13+)
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-			list.add(android.Manifest.permission.NEARBY_WIFI_DEVICES)
-		}
-		return list.distinct().toTypedArray()
 	}
 
-	private fun parsePermissionsJson(permsJson: String?): List<String> {
-		return try {
-			if (permsJson.isNullOrBlank()) return buildCommonPermissions().toList()
-			val arr = org.json.JSONArray(permsJson)
-			val out = mutableListOf<String>()
-			for (i in 0 until arr.length()) { val p = arr.optString(i); if (p.isNotBlank()) out.add(p) }
-			if (out.isEmpty()) buildCommonPermissions().toList() else out
-		} catch (_: Exception) { buildCommonPermissions().toList() }
-	}
-
-	private fun requestGenericPermissions(perms: Array<String>, callback: (Map<String, Boolean>) -> Unit) {
-		pendingPermissionsCallback = callback
-		genericPermissionsLauncher.launch(perms)
+	override fun onPause() {
+		super.onPause()
+		try {
+			if (::webView.isInitialized) {
+				webView.onPause()
+			}
+		} catch (e: Exception) {
+			Log.e(TAG, "Error in onPause", e)
+		}
 	}
 
 	override fun onSaveInstanceState(outState: Bundle) {
 		super.onSaveInstanceState(outState)
-		webView.saveState(outState)
+		try {
+			if (::webView.isInitialized) {
+				webView.saveState(outState)
+			}
+		} catch (e: Exception) {
+			Log.e(TAG, "Error saving WebView state", e)
+		}
 	}
 
 	override fun onBackPressed() {
-		if (::webView.isInitialized && webView.canGoBack()) {
-			webView.goBack()
-		} else {
-			if (isKioskEnabled()) {
-				return
+		try {
+			if (::webView.isInitialized && webView.canGoBack()) {
+				webView.goBack()
+			} else {
+				if (isKioskEnabled()) {
+					return
+				}
+				super.onBackPressed()
 			}
-			super.onBackPressed()
+		} catch (e: Exception) {
+			Log.e(TAG, "Error in onBackPressed", e)
+			if (!isKioskEnabled()) {
+				super.onBackPressed()
+			}
 		}
 	}
 
 	override fun onDestroy() {
-		usbPrinter?.close()
-		escPosPrinter?.close()
-		lanPrinter?.close()
-		printerTester.cleanup()
-		super.onDestroy()
-	}
-	// Show receipt preview in a modal dialog with a WebView
-	@android.annotation.SuppressLint("SetJavaScriptEnabled")
-	private fun showReceiptDialog(url: String) {
 		try {
-			val view = layoutInflater.inflate(R.layout.dialog_receipt, null)
-			val web = view.findViewById<android.webkit.WebView>(R.id.receiptWebView)
-			val close = view.findViewById<android.widget.ImageButton>(R.id.closeBtn)
-			val progress = view.findViewById<android.widget.ProgressBar>(R.id.progressBar)
-			android.webkit.CookieManager.getInstance().setAcceptCookie(true)
-			android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
-
-			with(web.settings) {
-				javaScriptEnabled = true
-				domStorageEnabled = true
-				databaseEnabled = true
-				useWideViewPort = true
-				loadWithOverviewMode = true
-				builtInZoomControls = true
-				displayZoomControls = false
-				mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-			}
-
-			val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
-				.setView(view)
-				.setCancelable(true)
-				.create()
-
-			close.setOnClickListener { dialog.dismiss() }
-
-			web.webViewClient = object : android.webkit.WebViewClient() {
-				override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
-					super.onPageFinished(view, url)
-					progress.visibility = android.view.View.GONE
+			usbPrinter?.close()
+			escPosPrinter?.close()
+			lanPrinter?.close()
+			unifiedPrinterHandler.closeAll()
+			printerTester.cleanup()
+		} catch (e: Exception) {
+			Log.e(TAG, "Error closing printers", e)
+		}
+		
+		try {
+			if (::webView.isInitialized) {
+				webView.apply {
+					onPause()
+					clearHistory()
+					clearCache(true)
+					loadUrl("about:blank")
+					removeAllViews()
+					destroyDrawingCache()
+					destroy()
 				}
 			}
-
-			progress.visibility = android.view.View.VISIBLE
-			dialog.show()
-			web.loadUrl(url)
 		} catch (e: Exception) {
-			android.widget.Toast.makeText(this, "Failed to open receipt: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+			Log.e(TAG, "Error destroying WebView", e)
 		}
+		
+		super.onDestroy()
 	}
 }

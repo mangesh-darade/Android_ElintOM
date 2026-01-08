@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <!-- Header -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Login"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:textColor="#212121"
+            android:gravity="center"
+            android:layout_marginTop="32dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Please login to continue"
+            android:textSize="16sp"
+            android:textColor="#757575"
+            android:gravity="center"
+            android:layout_marginBottom="32dp" />
+
+        <!-- Login Form -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="24dp"
+            android:layout_marginBottom="16dp"
+            android:elevation="2dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Username"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/usernameEditText"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:hint="Enter username"
+                android:inputType="text"
+                android:background="@android:drawable/edit_text"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Password"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/passwordEditText"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:hint="Enter password"
+                android:inputType="textPassword"
+                android:background="@android:drawable/edit_text"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginBottom="16dp" />
+
+            <CheckBox
+                android:id="@+id/rememberMeCheckBox"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Remember me"
+                android:textSize="14sp"
+                android:layout_marginBottom="24dp" />
+
+            <Button
+                android:id="@+id/loginButton"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:text="Login"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:backgroundTint="#2196F3" />
+
+        </LinearLayout>
+
+        <!-- Settings Toggle Button -->
+        <Button
+            android:id="@+id/settingsToggleButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:text="Show Settings"
+            android:textSize="14sp"
+            android:backgroundTint="#757575"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Settings/Printer Configuration Container -->
+        <LinearLayout
+            android:id="@+id/settingsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="24dp"
+            android:elevation="2dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Printer Configuration"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Status Text -->
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Discovering printers..."
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:gravity="center"
+                android:padding="12dp"
+                android:background="#E0E0E0"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Connection Type Selection -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Connection Type"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/connectionTypeSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Printer Model Selection -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Printer Model"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/printerModelSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Available Printers List -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Available Printers"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#212121" />
+
+                <Button
+                    android:id="@+id/refreshButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="Refresh"
+                    android:textSize="12sp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/testPrintButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="Test Print"
+                    android:textSize="12sp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:backgroundTint="#4CAF50" />
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/printerRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="250dp"
+                android:background="#F5F5F5"
+                android:padding="8dp" />
+            
+            <!-- Print Dialog Option -->
+            <CheckBox
+                android:id="@+id/showPrintDialogCheckBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Show Print Dialog (uncheck for direct print using configured printer)"
+                android:textSize="14sp"
+                android:layout_marginTop="16dp"
+                android:checked="false" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Note: You can configure printer settings later from the app menu"
+                android:textSize="12sp"
+                android:textColor="#9E9E9E"
+                android:gravity="center"
+                android:layout_marginTop="16dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>
+

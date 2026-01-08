@@ -1,0 +1,401 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F5F5F5"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <!-- Header -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Initial Setup"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:textColor="#212121"
+            android:gravity="center"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Complete setup to start using POS"
+            android:textSize="14sp"
+            android:textColor="#757575"
+            android:gravity="center"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Customer Information Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp"
+            android:elevation="2dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Customer Information"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Customer Name"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/customerNameEditText"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:hint="Enter customer name"
+                android:inputType="textPersonName"
+                android:background="@android:drawable/edit_text"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Mobile Number"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/mobileNumberEditText"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:hint="Enter mobile number"
+                android:inputType="phone"
+                android:background="@android:drawable/edit_text"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:layout_marginBottom="16dp" />
+
+            <Button
+                android:id="@+id/fetchDomainButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="Fetch Domains"
+                android:textSize="16sp"
+                android:backgroundTint="#2196F3" />
+
+            <TextView
+                android:id="@+id/domainStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="#757575"
+                android:gravity="center"
+                android:layout_marginTop="8dp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <!-- Domain Selection Section -->
+        <LinearLayout
+            android:id="@+id/domainSelectionContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp"
+            android:elevation="2dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Select Outlet / Domain"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Domain"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/domainSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+        </LinearLayout>
+
+        <!-- WebView Section -->
+        <LinearLayout
+            android:id="@+id/webViewContainer"
+            android:layout_width="match_parent"
+            android:layout_height="400dp"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="8dp"
+            android:layout_marginBottom="16dp"
+            android:elevation="2dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Web Preview"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:padding="8dp"
+                android:background="#F5F5F5" />
+
+            <WebView
+                android:id="@+id/webView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+        </LinearLayout>
+
+        <!-- Printer Settings Section -->
+        <LinearLayout
+            android:id="@+id/printerSettingsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#FFFFFF"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp"
+            android:elevation="2dp"
+            android:visibility="visible">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Printer Settings"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Connection Type -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Connection Type"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/connectionTypeSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Printer Model -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Printer Model"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/printerModelSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Paper Size -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Paper Size"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/paperSizeSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Line Spacing -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Line Spacing"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/lineSpacingSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Cut Mode -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Cut Mode"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/cutModeSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Print Mode -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Print Mode"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <Spinner
+                android:id="@+id/printModeSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@android:drawable/btn_dropdown"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Footer Text -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Footer Text (Optional)"
+                android:textSize="14sp"
+                android:textColor="#424242"
+                android:layout_marginBottom="8dp" />
+
+            <EditText
+                android:id="@+id/footerTextEditText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Enter footer text (e.g., Thank you for visiting!)"
+                android:inputType="textMultiLine"
+                android:minLines="2"
+                android:maxLines="3"
+                android:background="@android:drawable/edit_text"
+                android:padding="12dp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Available Printers List -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Available Printers"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#212121"
+                android:layout_marginBottom="8dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+
+                <Button
+                    android:id="@+id/refreshPrinterButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="Refresh"
+                    android:textSize="12sp"
+                    android:layout_marginEnd="8dp" />
+
+                <Button
+                    android:id="@+id/testPrintButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_weight="1"
+                    android:text="Test Print"
+                    android:textSize="12sp"
+                    android:backgroundTint="#4CAF50" />
+            </LinearLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/printerRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="200dp"
+                android:background="#F5F5F5"
+                android:padding="8dp" />
+
+            <TextView
+                android:id="@+id/printerStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="#757575"
+                android:gravity="center"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+        <!-- Internet Status -->
+        <TextView
+            android:id="@+id/internetStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Checking internet connection..."
+            android:textSize="12sp"
+            android:textColor="#757575"
+            android:gravity="center"
+            android:padding="8dp"
+            android:background="#E0E0E0"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Action Buttons -->
+        <Button
+            android:id="@+id/saveAndContinueButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="Save &amp; Continue"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:backgroundTint="#4CAF50"
+            android:enabled="false" />
+
+    </LinearLayout>
+
+</ScrollView>
+

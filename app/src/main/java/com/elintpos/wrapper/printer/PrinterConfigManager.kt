@@ -31,6 +31,9 @@ class PrinterConfigManager(private val context: Context) {
         // Paper sizes
         const val PAPER_58MM = 384
         const val PAPER_80MM = 576
+        // Approximate width for 90mm thermal paper. Many XP-90 style printers
+        // use a slightly wider printhead than standard 80mm models.
+        const val PAPER_90MM = 640
         const val PAPER_112MM = 832
         
         // Default configurations

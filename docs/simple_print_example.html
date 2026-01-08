@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete Invoice Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .invoice {
+            border: 1px solid #ddd;
+            padding: 20px;
+            background: white;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .logo {
+            max-width: 150px;
+            height: auto;
+            margin-bottom: 10px;
+        }
+        .company-info {
+            margin: 10px 0;
+        }
+        .invoice-details {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            padding: 10px;
+            background: #f5f5f5;
+        }
+        .customer-info {
+            margin: 15px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background: #f5f5f5;
+            font-weight: bold;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .totals {
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 2px solid #000;
+        }
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            font-weight: bold;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
+        .qr-code {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .qr-code img {
+            max-width: 150px;
+            height: auto;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            button {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="invoice" id="print-content">
+        <!-- Header with Logo -->
+        <div class="header">
+            <img src="https://via.placeholder.com/150x50/4CAF50/FFFFFF?text=LOGO" alt="Company Logo" class="logo" id="company-logo">
+            <h1>MY STORE NAME</h1>
+            <div class="company-info">
+                <p>123 Main Street, City, State 12345</p>
+                <p>Phone: (123) 456-7890 | Email: info@mystore.com</p>
+                <p>Website: www.mystore.com</p>
+            </div>
+        </div>
+        
+        <hr>
+        
+        <!-- Invoice Details -->
+        <div class="invoice-details">
+            <div>
+                <h2>TAX INVOICE</h2>
+                <p><strong>Invoice No:</strong> <span id="invoice-number">INV-2024-001</span></p>
+                <p><strong>Date:</strong> <span id="invoice-date"></span></p>
+                <p><strong>Time:</strong> <span id="invoice-time"></span></p>
+            </div>
+        </div>
+        
+        <!-- Customer Information -->
+        <div class="customer-info">
+            <h3>Customer Details</h3>
+            <p><strong>Name:</strong> <span id="customer-name">Walk In Customer</span></p>
+            <p><strong>Phone:</strong> <span id="customer-phone">+1 234 567 8900</span></p>
+            <p><strong>Email:</strong> <span id="customer-email">customer@email.com</span></p>
+            <p><strong>Address:</strong> <span id="customer-address">123 Customer Street, City</span></p>
+        </div>
+        
+        <hr>
+        
+        <!-- Items Table -->
+        <table>
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>HSN</th>
+                    <th class="text-right">Qty</th>
+                    <th class="text-right">Rate</th>
+                    <th class="text-right">Amount</th>
+                </tr>
+            </thead>
+            <tbody id="items-table">
+                <tr>
+                    <td>Product A</td>
+                    <td>12345678</td>
+                    <td class="text-right">2</td>
+                    <td class="text-right">$50.00</td>
+                    <td class="text-right">$100.00</td>
+                </tr>
+                <tr>
+                    <td>Product B</td>
+                    <td>87654321</td>
+                    <td class="text-right">1</td>
+                    <td class="text-right">$75.00</td>
+                    <td class="text-right">$75.00</td>
+                </tr>
+                <tr>
+                    <td>Product C</td>
+                    <td>11223344</td>
+                    <td class="text-right">3</td>
+                    <td class="text-right">$25.00</td>
+                    <td class="text-right">$75.00</td>
+                </tr>
+                <tr>
+                    <td>Service Charge</td>
+                    <td>-</td>
+                    <td class="text-right">1</td>
+                    <td class="text-right">$10.00</td>
+                    <td class="text-right">$10.00</td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <!-- Totals Section -->
+        <div class="totals">
+            <div class="total-row">
+                <span>Subtotal:</span>
+                <span>$260.00</span>
+            </div>
+            <div class="total-row">
+                <span>Tax (10%):</span>
+                <span>$26.00</span>
+            </div>
+            <div class="total-row">
+                <span>Discount:</span>
+                <span>-$20.00</span>
+            </div>
+            <div class="total-row" style="font-size: 18px; margin-top: 10px;">
+                <span>Total Amount:</span>
+                <span>$266.00</span>
+            </div>
+        </div>
+        
+        <!-- Payment Information -->
+        <div style="margin-top: 20px; padding: 10px; background: #f5f5f5;">
+            <h3>Payment Information</h3>
+            <p><strong>Payment Method:</strong> Cash</p>
+            <p><strong>Amount Paid:</strong> $266.00</p>
+            <p><strong>Change:</strong> $0.00</p>
+        </div>
+        
+        <!-- QR Code -->
+        <div class="qr-code">
+            <p><strong>Scan for Payment</strong></p>
+            <img src="https://via.placeholder.com/150x150/000000/FFFFFF?text=QR+CODE" alt="QR Code" id="qr-code-img">
+        </div>
+        
+        <!-- Additional Information -->
+        <div style="margin-top: 20px; font-size: 12px;">
+            <p><strong>Terms & Conditions:</strong></p>
+            <ul>
+                <li>Goods once sold will not be taken back</li>
+                <li>Warranty as per manufacturer terms</li>
+                <li>Please keep this invoice for warranty claims</li>
+            </ul>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>Thank you for your business!</strong></p>
+            <p>Visit us again soon</p>
+            <p>For queries, contact: support@mystore.com</p>
+            <p>GSTIN: 12ABCDE1234F1Z5</p>
+        </div>
+    </div>
+    
+    <button onclick="printInvoice()">Print Invoice</button>
+    
+    <script>
+        // Set current date and time
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('invoice-date').textContent = now.toLocaleDateString();
+            document.getElementById('invoice-time').textContent = now.toLocaleTimeString();
+        }
+        
+        // Format content for thermal printer with proper alignment
+        function formatForThermalPrinter() {
+            const invoice = document.getElementById('print-content');
+            let formatted = '';
+            
+            // Header
+            const header = invoice.querySelector('.header');
+            if (header) {
+                const companyName = header.querySelector('h1')?.textContent || '';
+                const companyInfo = header.querySelectorAll('.company-info p');
+                formatted += companyName + '\n';
+                formatted += '='.repeat(companyName.length) + '\n\n';
+                companyInfo.forEach(p => {
+                    formatted += p.textContent.trim() + '\n';
+                });
+                formatted += '\n';
+            }
+            
+            // Invoice Details
+            const invoiceDetails = invoice.querySelector('.invoice-details');
+            if (invoiceDetails) {
+                formatted += 'TAX INVOICE\n';
+                formatted += '-'.repeat(32) + '\n';
+                const details = invoiceDetails.querySelectorAll('p');
+                details.forEach(p => {
+                    formatted += p.textContent.trim() + '\n';
+                });
+                formatted += '\n';
+            }
+            
+            // Customer Info
+            const customerInfo = invoice.querySelector('.customer-info');
+            if (customerInfo) {
+                formatted += 'Customer Details\n';
+                formatted += '-'.repeat(32) + '\n';
+                const customerFields = customerInfo.querySelectorAll('p');
+                customerFields.forEach(p => {
+                    formatted += p.textContent.trim() + '\n';
+                });
+                formatted += '\n';
+            }
+            
+            // Items Table
+            const table = invoice.querySelector('table');
+            if (table) {
+                const rows = table.querySelectorAll('tr');
+                rows.forEach((row, index) => {
+                    const cells = row.querySelectorAll('th, td');
+                    if (cells.length > 0) {
+                        if (index === 0) {
+                            // Header row
+                            formatted += '-'.repeat(48) + '\n';
+                        }
+                        
+                        // Format row with alignment
+                        if (cells.length === 5) {
+                            // Items table
+                            const item = cells[0].textContent.trim();
+                            const hsn = cells[1].textContent.trim();
+                            const qty = cells[2].textContent.trim();
+                            const rate = cells[3].textContent.trim();
+                            const amount = cells[4].textContent.trim();
+                            
+                            formatted += item.padEnd(15) + ' ' + 
+                                        hsn.padEnd(10) + ' ' + 
+                                        qty.padStart(4) + ' ' + 
+                                        rate.padStart(8) + ' ' + 
+                                        amount.padStart(10) + '\n';
+                        }
+                        
+                        if (index === rows.length - 1) {
+                            formatted += '-'.repeat(48) + '\n';
+                        }
+                    }
+                });
+                formatted += '\n';
+            }
+            
+            // Totals
+            const totals = invoice.querySelector('.totals');
+            if (totals) {
+                const totalRows = totals.querySelectorAll('.total-row');
+                totalRows.forEach(row => {
+                    const spans = row.querySelectorAll('span');
+                    if (spans.length === 2) {
+                        const label = spans[0].textContent.trim();
+                        const value = spans[1].textContent.trim();
+                        formatted += label.padEnd(20) + value.padStart(15) + '\n';
+                    }
+                });
+                formatted += '\n';
+            }
+            
+            // Payment Info
+            const paymentInfo = invoice.querySelector('[style*="background: #f5f5f5"]');
+            if (paymentInfo && paymentInfo.querySelector('h3')?.textContent === 'Payment Information') {
+                formatted += 'Payment Information\n';
+                formatted += '-'.repeat(32) + '\n';
+                const paymentFields = paymentInfo.querySelectorAll('p');
+                paymentFields.forEach(p => {
+                    formatted += p.textContent.trim() + '\n';
+                });
+                formatted += '\n';
+            }
+            
+            // Footer
+            const footer = invoice.querySelector('.footer');
+            if (footer) {
+                const footerTexts = footer.querySelectorAll('p');
+                footerTexts.forEach(p => {
+                    formatted += p.textContent.trim() + '\n';
+                });
+            }
+            
+            return formatted;
+        }
+        
+        // Print function
+        function printInvoice() {
+            // Update date/time before printing
+            updateDateTime();
+            
+            // Get formatted content for thermal printer (with alignment, no borders)
+            const content = formatForThermalPrinter();
+            
+            // Print using native interface
+            if (typeof ElintPOSNative !== 'undefined' && ElintPOSNative.printFromWeb) {
+                ElintPOSNative.printFromWeb(content, 'auto');
+            } else {
+                // Fallback to window.print()
+                window.print();
+            }
+        }
+        
+        // Initialize on page load
+        window.onload = function() {
+            updateDateTime();
+            
+            // You can load actual images here
+            // document.getElementById('company-logo').src = 'path/to/your/logo.png';
+            // document.getElementById('qr-code-img').src = 'path/to/your/qrcode.png';
+        };
+        
+        // Example: Update invoice data dynamically
+        function updateInvoiceData(data) {
+            if (data.invoiceNumber) {
+                document.getElementById('invoice-number').textContent = data.invoiceNumber;
+            }
+            if (data.customerName) {
+                document.getElementById('customer-name').textContent = data.customerName;
+            }
+            if (data.items && Array.isArray(data.items)) {
+                const tbody = document.getElementById('items-table');
+                tbody.innerHTML = '';
+                data.items.forEach(item => {
+                    const row = tbody.insertRow();
+                    row.insertCell(0).textContent = item.name;
+                    row.insertCell(1).textContent = item.hsn || '-';
+                    row.insertCell(2).className = 'text-right';
+                    row.insertCell(2).textContent = item.quantity;
+                    row.insertCell(3).className = 'text-right';
+                    row.insertCell(3).textContent = '$' + item.rate.toFixed(2);
+                    row.insertCell(4).className = 'text-right';
+                    row.insertCell(4).textContent = '$' + item.amount.toFixed(2);
+                });
+            }
+        }
+        
+        // Example usage:
+        // updateInvoiceData({
+        //     invoiceNumber: 'INV-2024-002',
+        //     customerName: 'John Doe',
+        //     items: [
+        //         { name: 'Product X', hsn: '12345678', quantity: 1, rate: 100, amount: 100 }
+        //     ]
+        // });
+    </script>
+</body>
+</html>

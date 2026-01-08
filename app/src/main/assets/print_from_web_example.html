@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ElintPOS - Print From Web Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 10px;
+            font-family: monospace;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        button.secondary {
+            background: #2196F3;
+        }
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .result.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .result.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .example-buttons {
+            margin: 10px 0;
+        }
+        .example-buttons button {
+            background: #6c757d;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+        .example-buttons button:hover {
+            background: #5a6268;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🖨️ ElintPOS - Print From Web Example</h1>
+        
+        <h3>Enter text to print:</h3>
+        <textarea id="printText" placeholder="Enter text to print here...">Hello, World!
+This is a test print from ElintPOS.
+
+Date: <span id="currentDate"></span>
+Time: <span id="currentTime"></span>
+
+================================
+Thank you for using ElintPOS!
+================================</textarea>
+        
+        <div>
+            <h3>Printer Selection:</h3>
+            <label>
+                <input type="radio" name="printerType" value="auto" checked> Auto (Best Available)
+            </label>
+            <label>
+                <input type="radio" name="printerType" value="bt"> Bluetooth
+            </label>
+            <label>
+                <input type="radio" name="printerType" value="usb"> USB
+            </label>
+            <label>
+                <input type="radio" name="printerType" value="lan"> Network/LAN
+            </label>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button onclick="printText()">🖨️ Print Text</button>
+            <button class="secondary" onclick="checkPrinter()">🔍 Check Printer Status</button>
+        </div>
+        
+        <div class="example-buttons">
+            <h3>Quick Examples:</h3>
+            <button onclick="printInvoice()">📄 Print Sample Invoice</button>
+            <button onclick="printReceipt()">🧾 Print Sample Receipt</button>
+            <button onclick="printTest()">🧪 Print Test Page</button>
+        </div>
+        
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        // Update date and time
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('currentDate').textContent = now.toLocaleDateString();
+            document.getElementById('currentTime').textContent = now.toLocaleTimeString();
+        }
+        updateDateTime();
+        setInterval(updateDateTime, 1000);
+
+        // Check if ElintPOSNative is available
+        function checkNativeAvailable() {
+            if (typeof ElintPOSNative === 'undefined') {
+                showResult('ElintPOSNative is not available. Make sure you are running this in the ElintPOS Android app.', 'error');
+                return false;
+            }
+            if (typeof ElintPOSNative.printFromWeb !== 'function') {
+                showResult('ElintPOSNative.printFromWeb is not available.', 'error');
+                return false;
+            }
+            return true;
+        }
+
+        // Show result message
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.className = 'result ' + type;
+            resultDiv.style.display = 'block';
+            
+            // Auto-hide after 5 seconds for success messages
+            if (type === 'success') {
+                setTimeout(() => {
+                    resultDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Main print function
+        function printText() {
+            if (!checkNativeAvailable()) return;
+            
+            const text = document.getElementById('printText').value;
+            if (!text.trim()) {
+                showResult('Please enter some text to print.', 'error');
+                return;
+            }
+            
+            const printerType = document.querySelector('input[name="printerType"]:checked').value;
+            
+            try {
+                console.log('Printing text:', text);
+                console.log('Printer type:', printerType);
+                
+                const result = JSON.parse(ElintPOSNative.printFromWeb(text, printerType));
+                
+                if (result.ok) {
+                    showResult('✅ Print sent successfully!', 'success');
+                    console.log('Print successful');
+                } else {
+                    showResult('❌ Print failed: ' + result.msg, 'error');
+                    console.error('Print failed:', result.msg);
+                }
+            } catch (e) {
+                showResult('❌ Error: ' + e.message, 'error');
+                console.error('Print error:', e);
+            }
+        }
+
+        // Check printer status
+        function checkPrinter() {
+            if (!checkNativeAvailable()) return;
+            
+            try {
+                // Try to get printer status
+                if (typeof ElintPOSNative.getPrinterStatus === 'function') {
+                    const status = JSON.parse(ElintPOSNative.getPrinterStatus());
+                    showResult('Printer Status: ' + JSON.stringify(status, null, 2), 'success');
+                } else {
+                    showResult('getPrinterStatus method not available. Try printing to check status.', 'error');
+                }
+            } catch (e) {
+                showResult('Error checking printer: ' + e.message, 'error');
+            }
+        }
+
+        // Print sample invoice
+        function printInvoice() {
+            const invoiceText = `
+================================
+TAX INVOICE
+================================
+
+Store: Sample Store
+Address: 123 Main Street
+Phone: +91 1234567890
+
+Invoice #: INV-001
+Date: ${new Date().toLocaleDateString()}
+Time: ${new Date().toLocaleTimeString()}
+
+--------------------------------
+Items:
+--------------------------------
+Item 1                    Rs.100
+Item 2                    Rs.200
+Item 3                    Rs.150
+
+--------------------------------
+Subtotal:                 Rs.450
+Tax (5%):                 Rs.22.50
+--------------------------------
+TOTAL:                    Rs.472.50
+--------------------------------
+
+Payment: Cash
+Paid: Rs.500
+Change: Rs.27.50
+
+Thank you for your business!
+================================
+            `.trim();
+            
+            document.getElementById('printText').value = invoiceText;
+            printText();
+        }
+
+        // Print sample receipt
+        function printReceipt() {
+            const receiptText = `
+================================
+RECEIPT
+================================
+
+Store: Sample Store
+Date: ${new Date().toLocaleDateString()}
+Time: ${new Date().toLocaleTimeString()}
+
+--------------------------------
+Items:
+--------------------------------
+Coffee x 2              Rs.100
+Sandwich x 1            Rs.150
+Juice x 1               Rs.50
+
+--------------------------------
+TOTAL:                  Rs.300
+--------------------------------
+
+Payment: Cash
+Thank you!
+================================
+            `.trim();
+            
+            document.getElementById('printText').value = receiptText;
+            printText();
+        }
+
+        // Print test page
+        function printTest() {
+            const testText = `
+================================
+PRINTER TEST PAGE
+================================
+
+This is a test print to verify
+your printer is working correctly.
+
+Printer: Auto-Selected
+Date: ${new Date().toLocaleDateString()}
+Time: ${new Date().toLocaleTimeString()}
+
+If you can read this clearly,
+your printer is configured correctly!
+
+================================
+TEST COMPLETE
+================================
+            `.trim();
+            
+            document.getElementById('printText').value = testText;
+            printText();
+        }
+    </script>
+</body>
+</html>
+

@@ -78,6 +78,18 @@
 			android:screenOrientation="portrait" />
 
 		<activity
+			android:name=".PrinterSetupActivity"
+			android:exported="false"
+			android:theme="@style/Theme.ElintPOS"
+			android:screenOrientation="portrait" />
+
+		<activity
+			android:name=".LoginSettingsActivity"
+			android:exported="false"
+			android:theme="@style/Theme.ElintPOS"
+			android:screenOrientation="portrait" />
+
+		<activity
 			android:name=".MainActivity"
 			android:exported="true"
 			android:launchMode="singleTask"
@@ -85,7 +97,7 @@
 			android:theme="@style/Theme.ElintPOS"
 			android:resizeableActivity="false">
 
-			<!-- Deep links for 1602clothingqa.elintpos.in -->
+			<!-- Deep links for androidtesting.elintpos.in -->
 			<intent-filter android:autoVerify="true">
 				<action android:name="android.intent.action.VIEW" />
 				<category android:name="android.intent.category.DEFAULT" />

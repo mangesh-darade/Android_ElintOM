@@ -61,11 +61,17 @@ class SplashActivity : ComponentActivity() {
     private fun navigateToNextScreen() {
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val isSetupCompleted = prefs.getBoolean("is_setup_completed", false)
+        val isPrinterConfigured = prefs.getBoolean("printer_configured", false)
         
-        val intent = if (isSetupCompleted) {
-            Intent(this, MainActivity::class.java)
+        // STEP 1: Check printer configuration first (MANDATORY)
+        // If printer not configured, go to PrinterSetupActivity (mandatory setup)
+        // HIDE InitialSetupActivity - always go to MainActivity instead
+        val intent = if (!isPrinterConfigured) {
+            // Printer not configured - MANDATORY setup
+            Intent(this, PrinterSetupActivity::class.java)
         } else {
-            Intent(this, InitialSetupActivity::class.java)
+            // Always go to MainActivity (InitialSetupActivity is hidden/blocked)
+            Intent(this, MainActivity::class.java)
         }
         startActivity(intent)
         finish()
