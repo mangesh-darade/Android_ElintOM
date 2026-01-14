@@ -281,7 +281,7 @@ class DomainApiService {
             DomainInfo(
                 id = "1",
                 name = "Main Outlet",
-                domain = "androidtesting.elintpos.in",
+                domain = "1602clothingprod.elintpos.in",
                 outletName = "Main Outlet",
                 isActive = true
             ),

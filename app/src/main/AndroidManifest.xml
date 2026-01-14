@@ -97,14 +97,14 @@
 			android:theme="@style/Theme.ElintPOS"
 			android:resizeableActivity="false">
 
-			<!-- Deep links for androidtesting.elintpos.in -->
+			<!-- Deep links for 1602clothingprod.elintpos.in -->
 			<intent-filter android:autoVerify="true">
 				<action android:name="android.intent.action.VIEW" />
 				<category android:name="android.intent.category.DEFAULT" />
 				<category android:name="android.intent.category.BROWSABLE" />
 
-				<data android:scheme="http" android:host="androidtesting.elintpos.in" />
-				<data android:scheme="https" android:host="androidtesting.elintpos.in" />
+				<data android:scheme="http" android:host="1602clothingprod.elintpos.in" />
+				<data android:scheme="https" android:host="1602clothingprod.elintpos.in" />
 
 			</intent-filter>
 

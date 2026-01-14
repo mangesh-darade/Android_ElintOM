@@ -455,6 +455,99 @@ class MainActivity : ComponentActivity() {
 			override fun onPageFinished(view: WebView?, url: String?) {
 				super.onPageFinished(view, url)
                 Log.d(TAG, "Page finished loading: $url")
+				
+				// Inject JavaScript to override window.print() multiple times with delays
+				// This ensures it's in place before $(window).load() fires
+				val printOverrideScript = """
+					(function() {
+						// Save original window.print if it exists
+						var originalPrint = window.print;
+						
+						// Override window.print() to call native Android print dialog
+						window.print = function() {
+							console.log('window.print() called - intercepting for Android native print dialog');
+							
+							// Check if ElintPOSNative bridge is available
+							if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.showNativePrintDialog === 'function') {
+								try {
+									var result = ElintPOSNative.showNativePrintDialog();
+									var response = JSON.parse(result || '{}');
+									if (response.ok) {
+										console.log('Native print dialog opened successfully');
+										return; // Success - native dialog opened
+									} else {
+										console.warn('Native print dialog failed:', response.msg);
+									}
+								} catch (e) {
+									console.error('Error calling native print dialog:', e);
+								}
+							}
+							
+							// Fallback to original print if native bridge not available or failed
+							if (originalPrint && typeof originalPrint === 'function') {
+								originalPrint.call(window);
+							}
+						};
+						
+						console.log('window.print() override installed');
+					})();
+				""".trimIndent()
+				
+				// Inject immediately
+				view?.evaluateJavascript(printOverrideScript, null)
+				
+				// Inject again after a short delay to catch late-loading scripts
+				view?.postDelayed({
+					view?.evaluateJavascript(printOverrideScript, null)
+				}, 50)
+				
+				// Inject again after longer delay to catch $(window).load() calls
+				view?.postDelayed({
+					view?.evaluateJavascript(printOverrideScript, null)
+				}, 500)
+				
+				// Also inject when DOM is ready (if document.readyState is available)
+				view?.evaluateJavascript("""
+					(function() {
+						function installPrintOverride() {
+							var originalPrint = window.print;
+							window.print = function() {
+								console.log('window.print() called - intercepting for Android native print dialog');
+								if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.showNativePrintDialog === 'function') {
+									try {
+										var result = ElintPOSNative.showNativePrintDialog();
+										var response = JSON.parse(result || '{}');
+										if (response.ok) {
+											console.log('Native print dialog opened successfully');
+											return;
+										}
+									} catch (e) {
+										console.error('Error calling native print dialog:', e);
+									}
+								}
+								if (originalPrint && typeof originalPrint === 'function') {
+									originalPrint.call(window);
+								}
+							};
+							console.log('window.print() override installed (DOM ready)');
+						}
+						
+						if (document.readyState === 'loading') {
+							document.addEventListener('DOMContentLoaded', installPrintOverride);
+						} else {
+							installPrintOverride();
+						}
+						
+						// Also ensure it's installed when window.load fires
+						if (typeof jQuery !== 'undefined') {
+							jQuery(window).on('load', function() {
+								installPrintOverride();
+							});
+						} else {
+							window.addEventListener('load', installPrintOverride);
+						}
+					})();
+				""".trimIndent(), null)
 			}
 			
 			@Suppress("DEPRECATION")
