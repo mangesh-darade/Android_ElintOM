@@ -108,7 +108,7 @@ class InitialSetupActivity : ComponentActivity() {
     private var selectedDomain: DomainApiService.DomainInfo? = null
 
     // Options
-    private val connectionTypes = listOf("Bluetooth", "USB", "LAN", "AutoReplyPrint")
+    private val connectionTypes = listOf("Bluetooth", "USB", "LAN", "AutoReplyPrint", "TecMI K8")
     private val printerModels = listOf("XP-58C", "XP-80", "XP-80C", "XP-90", "XP-76", "XP-76C", "XP-F800")
     
     // AutoReplyPrint SDK
@@ -246,7 +246,10 @@ class InitialSetupActivity : ComponentActivity() {
         connectionTypeSpinner.adapter = connectionAdapter
         connectionTypeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                selectedConnectionType = connectionTypes[position].lowercase()
+                selectedConnectionType = when (connectionTypes[position]) {
+                    "TecMI K8" -> "tecmi_k8"
+                    else -> connectionTypes[position].lowercase()
+                }
                 discoverPrinters()
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
@@ -451,6 +454,7 @@ class InitialSetupActivity : ComponentActivity() {
             "usb" -> discoverUsbPrinters()
             "lan" -> showLanConfiguration()
             "autoreplyprint" -> discoverAutoReplyPrintPrinters()
+            "tecmi_k8" -> showTecMiK8Printer()
         }
 
         printerRecyclerView.adapter?.notifyDataSetChanged()
@@ -533,6 +537,18 @@ class InitialSetupActivity : ComponentActivity() {
             )
         )
         updatePrinterStatus("LAN printer configuration available")
+    }
+
+    private fun showTecMiK8Printer() {
+        availablePrinters.add(
+            PrinterInfo(
+                name = "TecMI K8 Built-in Printer",
+                address = "usb",
+                type = "tecmi_k8",
+                model = "TecMI K8"
+            )
+        )
+        updatePrinterStatus("TecMI K8 built-in USB printer. Select it, then run Test Print.")
     }
 
     private fun discoverAutoReplyPrintPrinters() {
@@ -841,6 +857,7 @@ class InitialSetupActivity : ComponentActivity() {
                     "address" to printer.address,
                     "connectionType" to "autoreplyprint"
                 )
+                "tecmi_k8" -> mapOf("transport" to "usb")
                 else -> emptyMap()
             }
 
@@ -859,7 +876,11 @@ class InitialSetupActivity : ComponentActivity() {
             )
 
             val config = PrinterConfigManager.PrinterConfig(
-                type = if (printer.type == "autoreplyprint") PrinterConfigManager.TYPE_AUTOREPLYPRINT else printer.type,
+                type = when (printer.type) {
+                    "autoreplyprint" -> PrinterConfigManager.TYPE_AUTOREPLYPRINT
+                    "tecmi_k8" -> PrinterConfigManager.TYPE_TECMI_K8
+                    else -> printer.type
+                },
                 name = "${printer.name} (${selectedModel})",
                 enabled = true,
                 paperWidth = paperWidth,
