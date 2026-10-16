@@ -27,6 +27,7 @@ class PrinterConfigManager(private val context: Context) {
         const val TYPE_XPRINTER = "xprinter"
         const val TYPE_VENDOR = "vendor"
         const val TYPE_AUTOREPLYPRINT = "autoreplyprint"
+        const val TYPE_TECMI_K8 = "tecmi_k8"
         
         // Paper sizes
         const val PAPER_58MM = 384
@@ -81,6 +82,25 @@ class PrinterConfigManager(private val context: Context) {
             autoConnect = true,
             timeout = 5000,
             connectionParams = mapOf("ip" to "192.168.1.100", "port" to "9100")
+        )
+
+        private val DEFAULT_TECMI_K8_CONFIG = PrinterConfig(
+            id = "default_tecmi_k8",
+            type = TYPE_TECMI_K8,
+            name = "TecMI K8 Built-in Printer",
+            enabled = true,
+            paperWidth = PAPER_80MM,
+            leftMargin = 0,
+            rightMargin = 0,
+            lineSpacing = 30,
+            widthMultiplier = 0,
+            heightMultiplier = 0,
+            charset = "GBK",
+            autoConnect = true,
+            timeout = 5000,
+            connectionParams = mapOf("transport" to "usb"),
+            isDefault = true,
+            lastUsed = 0L
         )
     }
     
@@ -258,7 +278,8 @@ class PrinterConfigManager(private val context: Context) {
         val defaultConfigs = mapOf(
             "default_bt" to DEFAULT_BT_CONFIG,
             "default_usb" to DEFAULT_USB_CONFIG,
-            "default_lan" to DEFAULT_LAN_CONFIG
+            "default_lan" to DEFAULT_LAN_CONFIG,
+            "default_tecmi_k8" to DEFAULT_TECMI_K8_CONFIG
         )
         
         var needsSave = false

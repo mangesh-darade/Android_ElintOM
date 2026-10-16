@@ -6,6 +6,7 @@ import com.elintpos.wrapper.escpos.BluetoothEscPosPrinter
 import com.elintpos.wrapper.escpos.UsbEscPosPrinter
 import com.elintpos.wrapper.escpos.LanEscPosPrinter
 import com.elintpos.wrapper.printer.vendor.EpsonPrinter
+import com.elintpos.wrapper.printer.vendor.TecMiK8Printer
 import com.elintpos.wrapper.printer.vendor.XPrinter
 import com.elintpos.wrapper.printer.vendor.VendorPrinter
 import com.elintpos.wrapper.sdk.SdkDownloader
@@ -75,6 +76,7 @@ class PrinterTester(private val context: Context) {
                 PrinterConfigManager.TYPE_EPSON -> testEpsonPrinter(profile)
                 PrinterConfigManager.TYPE_XPRINTER -> testXPrinter(profile)
                 PrinterConfigManager.TYPE_VENDOR -> testVendorPrinter(profile)
+                PrinterConfigManager.TYPE_TECMI_K8 -> testTecMiK8Printer(profile)
                 else -> TestResult(
                     success = false,
                     message = "Unknown printer type: ${profile.type}",
@@ -425,6 +427,45 @@ class PrinterTester(private val context: Context) {
             TestResult(
                 success = false,
                 message = "Vendor printer test failed: ${e.message}",
+                duration = System.currentTimeMillis() - startTime,
+                error = e.javaClass.simpleName
+            )
+        }
+    }
+
+    private fun testTecMiK8Printer(profile: PrinterConfigManager.PrinterConfig): TestResult {
+        val startTime = System.currentTimeMillis()
+        return try {
+            val printer = TecMiK8Printer(context)
+            if (!printer.isAvailable()) {
+                return TestResult(
+                    success = false,
+                    message = "TecMI K8 SDK not available",
+                    duration = System.currentTimeMillis() - startTime,
+                    error = "SDK_NOT_AVAILABLE"
+                )
+            }
+            val printed = printer.printText(
+                text = "TecMI K8 test\n",
+                paperWidth = profile.paperWidth
+            )
+            val status = if (printed.success) printer.statusText() else null
+            TestResult(
+                success = printed.success,
+                message = if (status != null) "${printed.message}. ${status.message}" else printed.message,
+                duration = System.currentTimeMillis() - startTime,
+                details = mapOf(
+                    "type" to profile.type,
+                    "sdkAvailable" to true,
+                    "connected" to printer.isConnected(),
+                    "status" to (status?.message ?: printed.message)
+                ),
+                error = if (!printed.success) "PRINT_FAILED" else null
+            )
+        } catch (e: Exception) {
+            TestResult(
+                success = false,
+                message = "TecMI K8 test failed: ${e.message}",
                 duration = System.currentTimeMillis() - startTime,
                 error = e.javaClass.simpleName
             )

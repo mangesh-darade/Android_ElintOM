@@ -244,12 +244,17 @@ dependencies {
     // You may need to download it manually and place in libs folder
     // implementation("com.xprinter:xprinter-sdk:1.0.0") // Uncomment if available
 
+    // TecMI K8 built-in printer: app/libs/icod_3.1.8.jar
+    // Native libs: app/src/main/jniLibs/<abi>/libusb1.0.so, libserial_icod.so, libimage_icod.so
+
     // Network and HTTP for SDK downloads
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     
     // Coroutines for async operations
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    testImplementation("junit:junit:4.13.2")
 
     // Local SDKs: auto-include any AAR/JAR in app/libs
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
