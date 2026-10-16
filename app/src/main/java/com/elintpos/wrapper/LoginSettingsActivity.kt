@@ -84,7 +84,7 @@ class LoginSettingsActivity : ComponentActivity() {
     
     // Connection types
     private val connectionTypes = listOf(
-        "Bluetooth", "USB", "LAN"
+        "Bluetooth", "USB", "LAN", "TecMI K8"
     )
     
     data class PrinterInfo(
@@ -212,6 +212,7 @@ class LoginSettingsActivity : ComponentActivity() {
                     "bluetooth" -> "bluetooth"
                     "usb" -> "usb"
                     "lan" -> "lan"
+                    "tecmi k8" -> "tecmi_k8"
                     else -> "bluetooth"
                 }
                 discoverPrinters()
@@ -285,6 +286,7 @@ class LoginSettingsActivity : ComponentActivity() {
             "bluetooth" -> discoverBluetoothPrinters()
             "usb" -> discoverUsbPrinters()
             "lan" -> showLanConfiguration()
+            "tecmi_k8" -> showTecMiK8Printer()
         }
         
         printerRecyclerView.adapter?.notifyDataSetChanged()
@@ -363,6 +365,18 @@ class LoginSettingsActivity : ComponentActivity() {
             model = selectedModel
         ))
         updateStatus("LAN printer configuration available")
+    }
+
+    private fun showTecMiK8Printer() {
+        availablePrinters.add(
+            PrinterInfo(
+                name = "TecMI K8 Built-in Printer",
+                address = "usb",
+                type = "tecmi_k8",
+                model = "TecMI K8"
+            )
+        )
+        updateStatus("TecMI K8 built-in USB printer. Select it, then run Test Print.")
     }
     
     private fun detectPrinterModel(deviceName: String): String {
