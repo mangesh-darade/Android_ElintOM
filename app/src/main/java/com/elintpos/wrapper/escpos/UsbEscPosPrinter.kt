@@ -125,40 +125,54 @@ class UsbEscPosPrinter(private val context: Context) {
 			if (sent <= 0) throw IOException("USB write failed")
 		}
 		
-		// Scale bitmap to target width
-		val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
-		val height = (width * aspectRatio).toInt()
-		val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
-		
-		// Convert to 1-bit bitmap
+		val target = if (bitmap.width == width) {
+			bitmap
+		} else {
+			val aspectRatio = bitmap.height.toFloat() / bitmap.width.toFloat()
+			val height = (width * aspectRatio).toInt().coerceAtLeast(1)
+			android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true)
+		}
 		val widthBytes = (width + 7) / 8
-		val imageData = ByteArray(widthBytes * height)
-		
-		for (y in 0 until height) {
-			for (x in 0 until width) {
-				val pixel = scaledBitmap.getPixel(x, y)
-				val gray = (android.graphics.Color.red(pixel) + android.graphics.Color.green(pixel) + android.graphics.Color.blue(pixel)) / 3
-				if (gray < 128) { // Black pixel
-					val byteIndex = y * widthBytes + x / 8
-					val bitIndex = 7 - (x % 8)
-					imageData[byteIndex] = (imageData[byteIndex].toInt() or (1 shl bitIndex)).toByte()
+		write(byteArrayOf(0x1B, 0x40))
+		var top = 0
+		while (top < target.height) {
+			val band = minOf(256, target.height - top)
+			val imageData = ByteArray(widthBytes * band)
+			for (y in 0 until band) {
+				for (x in 0 until width) {
+					val pixel = target.getPixel(x, top + y)
+					val gray = (
+						android.graphics.Color.red(pixel) +
+							android.graphics.Color.green(pixel) +
+							android.graphics.Color.blue(pixel)
+						) / 3
+					if (gray < 160) {
+						val byteIndex = y * widthBytes + x / 8
+						val bitIndex = 7 - (x % 8)
+						imageData[byteIndex] = (imageData[byteIndex].toInt() or (1 shl bitIndex)).toByte()
+					}
 				}
 			}
+			write(
+				byteArrayOf(
+					0x1D, 0x76, 0x30, 0x00,
+					(widthBytes and 0xFF).toByte(),
+					((widthBytes shr 8) and 0xFF).toByte(),
+					(band and 0xFF).toByte(),
+					((band shr 8) and 0xFF).toByte()
+				)
+			)
+			var offset = 0
+			while (offset < imageData.size) {
+				val end = minOf(offset + 4096, imageData.size)
+				write(imageData.copyOfRange(offset, end))
+				offset = end
+			}
+			top += band
 		}
-		
-		// Print image using ESC * command
-		write(byteArrayOf(0x1B, 0x40)) // Initialize
-		write(byteArrayOf(0x1B, 0x33, 0x18)) // Set line spacing
-		for (y in 0 until height) {
-			write(byteArrayOf(0x1B, 0x2A, 0x00, widthBytes.toByte(), (widthBytes and 0xFF).toByte()))
-			write(imageData.sliceArray(y * widthBytes until (y + 1) * widthBytes))
-			write(byteArrayOf(0x0A)) // Line feed
-		}
-		write(byteArrayOf(0x1B, 0x33, 0x30)) // Reset line spacing
-		write(byteArrayOf(0x1B, 0x64, 0x02)) // Feed 2 lines
-		write(byteArrayOf(0x1D, 0x56, 0x42, 0x03)) // Cut paper
-		
-		scaledBitmap.recycle()
+		write(byteArrayOf(0x1B, 0x64, 0x03))
+		write(byteArrayOf(0x1D, 0x56, 0x42, 0x00))
+		if (target !== bitmap && !target.isRecycled) target.recycle()
 	}
 
 	fun close() {

@@ -358,11 +358,63 @@ class ElintPOSPrinter {
     /**
      * Get the content of the current page for printing
      */
+    usesK8Raster() {
+        try {
+            if (typeof ElintPOSNative === 'undefined' || typeof ElintPOSNative.getPrinterStatus !== 'function') {
+                return false;
+            }
+            const status = JSON.parse(ElintPOSNative.getPrinterStatus() || '{}');
+            const type = String(status.type || '').toLowerCase();
+            return type === 'tecmi_k8' || type === 'usb' || type === 'bluetooth' || type === 'lan';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    htmlDocumentFor(element) {
+        const clone = element.cloneNode(true);
+        stripNonPrintable(clone);
+        const base = document.baseURI || window.location.href;
+        const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+            .map((node) => node.outerHTML)
+            .join('');
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8"><base href="' + base + '">' +
+            styles +
+            '<style>html,body{margin:0;background:#fff;color:#000;} img,table{max-width:100%;} table{width:100%;border-collapse:collapse;} table,th,td,tr{border:none !important;outline:none !important;}</style></head><body>' +
+            clone.innerHTML +
+            '</body></html>';
+    }
+
+    openCashDrawer() {
+        if (!this.isAvailable || typeof ElintPOSNative.openCashDrawer !== 'function') {
+            return false;
+        }
+        try {
+            const result = JSON.parse(ElintPOSNative.openCashDrawer() || '{}');
+            if (!result.ok) {
+                console.error('Cash drawer failed:', result.msg);
+            }
+            return !!result.ok;
+        } catch (e) {
+            console.error('Cash drawer error:', e);
+            return false;
+        }
+    }
+
     getPageContent() {
         // Remove the print button from content
         const printBtn = document.getElementById('elintpos-print-btn');
         if (printBtn) {
             printBtn.style.display = 'none';
+        }
+
+        if (this.usesK8Raster()) {
+            const target = findInvoiceContent();
+            const html = target ? this.htmlDocumentFor(target) : '';
+            if (printBtn) {
+                printBtn.style.display = 'block';
+            }
+            return html;
         }
 
         // Get the main content
@@ -388,10 +440,9 @@ class ElintPOSPrinter {
         }
 
         if (mainContent) {
-            content = mainContent.innerText || mainContent.textContent;
+            content = visibleText(mainContent);
         } else {
-            // Fallback to body content
-            content = document.body.innerText || document.body.textContent;
+            content = visibleText(document.body);
         }
 
         // Clean up the content
@@ -502,18 +553,18 @@ class ElintPOSPrinter {
     autoPrintOnSubmit(elementOrSelector, callback) {
         // Get the content to print
         let content = '';
-        if (typeof elementOrSelector === 'string') {
-            const element = document.querySelector(elementOrSelector);
-            if (element) {
-                content = this.extractElementContent(element);
-            } else {
-                content = document.body.innerText || document.body.textContent;
-            }
-        } else if (elementOrSelector) {
-            content = this.extractElementContent(elementOrSelector);
-        } else {
-            // Default: print the current page content
-            content = this.getPageContent();
+        const invoice = resolveInvoiceElement(elementOrSelector);
+        if (!invoice) {
+            console.warn('Invoice element not found. Page shell was not printed.');
+            this.showToast('Invoice not ready to print');
+            if (callback) callback(false, 'Invoice not found');
+            return;
+        }
+        content = this.extractElementContent(invoice);
+        if (!content || !String(content).trim()) {
+            this.showToast('Invoice not ready to print');
+            if (callback) callback(false, 'Invoice was empty');
+            return;
         }
         
         // Check Android settings for print dialog preference
@@ -1162,17 +1213,12 @@ ${html}`;
      * Extract content from an element for printing
      */
     extractElementContent(element) {
-        // Clone the element to avoid modifying the original
-        const clone = element.cloneNode(true);
-        
-        // Remove the print button from the clone
-        const printBtn = clone.querySelector('.elintpos-print-btn');
-        if (printBtn) {
-            printBtn.remove();
+        if (this.usesK8Raster()) {
+            return this.htmlDocumentFor(element);
         }
-
-        // Extract text content
-        let content = clone.innerText || clone.textContent;
+        const clone = element.cloneNode(true);
+        stripNonPrintable(clone);
+        let content = visibleText(clone);
         
         // Clean up the content
         content = content.replace(/\s+/g, ' ').trim();
@@ -1467,17 +1513,7 @@ function setupAutoPrintOnSubmit() {
                     form.querySelector('button[type="submit"]:contains("submit")');
                 
                 if (isCheckoutForm) {
-                    // Small delay to allow form submission to process
-                    setTimeout(() => {
-                        // Try to find invoice/receipt content to print
-                        const invoiceContent = findInvoiceContent();
-                        if (invoiceContent) {
-                            window.elintposPrinter.autoPrintOnSubmit(invoiceContent);
-                        } else {
-                            // Fallback: print the page content
-                            window.elintposPrinter.autoPrintOnSubmit();
-                        }
-                    }, 500);
+                    scheduleInvoicePrint();
                 }
             });
         });
@@ -1534,17 +1570,7 @@ function setupAutoPrintOnSubmit() {
                 
                 if (isCheckoutButton) {
                     console.log('Auto-print triggered by button:', buttonText || buttonId || buttonClass);
-                    // Small delay to allow button action to process
-                    setTimeout(() => {
-                        // Try to find invoice/receipt content to print
-                        const invoiceContent = findInvoiceContent();
-                        if (invoiceContent) {
-                            window.elintposPrinter.autoPrintOnSubmit(invoiceContent);
-                        } else {
-                            // Fallback: print the page content
-                            window.elintposPrinter.autoPrintOnSubmit();
-                        }
-                    }, 500);
+                    scheduleInvoicePrint();
                 }
             });
         });
@@ -1590,12 +1616,7 @@ function setupAutoPrintOnSubmit() {
                                         button.addEventListener('click', function() {
                                             if (window.elintposPrinter) {
                                                 console.log('Auto-print triggered by dynamically added button:', buttonText || buttonId || buttonClass);
-                                                setTimeout(() => {
-                                                    const invoiceContent = findInvoiceContent();
-                                                    window.elintposPrinter.autoPrintOnSubmit(
-                                                        invoiceContent || undefined
-                                                    );
-                                                }, 500);
+                                                scheduleInvoicePrint();
                                             }
                                         });
                                     }
@@ -1614,38 +1635,113 @@ function setupAutoPrintOnSubmit() {
     }, 1000); // Wait 1 second for page to fully load
 }
 
-/**
- * Find invoice/receipt content on the page
- * 
- * Looks for common invoice/receipt elements and returns the best match
- */
+function stripNonPrintable(element) {
+    if (!element || !element.querySelectorAll) return;
+    element.querySelectorAll(
+        'script, noscript, iframe, template, object, embed, ' +
+        '.elintpos-print-btn, #elintpos-print-btn, .sidebar, .side-menu'
+    ).forEach((node) => node.remove());
+}
+
+function visibleText(element) {
+    if (!element) return '';
+    const clone = element.cloneNode(true);
+    stripNonPrintable(clone);
+    return (clone.innerText || '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function isShown(element) {
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+}
+
+function isPageShell(element) {
+    if (!element || !element.tagName) return true;
+    const tag = element.tagName.toUpperCase();
+    if (tag === 'BODY' || tag === 'HTML' || tag === 'MAIN') return true;
+    const id = (element.id || '').toLowerCase();
+    const cls = String(element.className || '').toLowerCase();
+    return id === 'content' || id === 'main' || id === 'app' ||
+        cls === 'content' || cls.includes('sidebar') || cls.includes('side-menu') || cls.includes('wrapper');
+}
+
+function looksLikeInvoice(element) {
+    const text = visibleText(element);
+    if (text.length < 30 || text.length > 30000) return false;
+    if (/function\s*\(|<\/?script|<\?php|<\?=|document\.|jquery|\$\(/.test(text)) return false;
+    return /invoice|receipt|total|grand|bill|tax|qty|amount|₹|rs\.?|रोख|नकद/i.test(text);
+}
+
 function findInvoiceContent() {
-    // Common selectors for invoice/receipt content
     const selectors = [
-        '.invoice',
-        '.receipt',
-        '.checkout-summary',
-        '.order-summary',
-        '.invoice-content',
-        '.receipt-content',
-        '#invoice',
-        '#receipt',
-        '[data-invoice]',
-        '[data-receipt]',
-        '.modal-body .invoice',
-        '.modal-body .receipt',
-        '.print-content',
-        '.printable-content'
+        '#receipt-data', '#invoice-data', '#bill-data', '#print-content', '#printContent',
+        '.invoice', '.receipt', '.bill',
+        '.invoice-content', '.receipt-content', '.print-content', '.printable-content',
+        '#invoice', '#receipt', '#bill',
+        '[data-invoice]', '[data-receipt]', '[data-bill]',
+        '.modal-body .invoice', '.modal-body .receipt', '.modal.show .modal-body',
+        '.checkout-summary', '.order-summary'
     ];
-    
-    for (const selector of selectors) {
-        const element = document.querySelector(selector);
-        if (element && element.offsetParent !== null) {
-            return element; // Return first visible element
-        }
+    const found = [];
+    selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((element) => {
+            if (!element || !isShown(element) || isPageShell(element)) return;
+            if (!looksLikeInvoice(element)) return;
+            found.push(element);
+        });
+    });
+    if (!found.length) {
+        document.querySelectorAll('div, section, article, table').forEach((element) => {
+            if (!isShown(element) || isPageShell(element)) return;
+            const text = visibleText(element);
+            if (text.length < 80 || text.length > 8000) return;
+            if (/TAX INVOICE/i.test(text) && /Item Name/i.test(text)) found.push(element);
+        });
     }
-    
-    return null;
+    if (!found.length) return null;
+    const withLogo = found.filter((element) => element.querySelector('img'));
+    const pool = withLogo.length ? withLogo : found;
+    pool.sort((a, b) => visibleText(a).length - visibleText(b).length);
+    return pool[0];
+}
+
+function elintposInvoiceHtml() {
+    const invoice = findInvoiceContent();
+    if (!invoice || !window.elintposPrinter) return '';
+    return window.elintposPrinter.htmlDocumentFor(invoice);
+}
+
+function resolveInvoiceElement(elementOrSelector) {
+    if (typeof elementOrSelector === 'string') {
+        const element = document.querySelector(elementOrSelector);
+        return element && !isPageShell(element) ? element : findInvoiceContent();
+    }
+    if (elementOrSelector && elementOrSelector.nodeType === 1 && !isPageShell(elementOrSelector)) {
+        return elementOrSelector;
+    }
+    return findInvoiceContent();
+}
+
+let invoicePrintTimer = null;
+
+function scheduleInvoicePrint() {
+    if (invoicePrintTimer) return;
+    const started = Date.now();
+    invoicePrintTimer = setInterval(() => {
+        const invoice = findInvoiceContent();
+        const timedOut = Date.now() - started > 5000;
+        if (!invoice && !timedOut) return;
+        clearInterval(invoicePrintTimer);
+        invoicePrintTimer = null;
+        if (!window.elintposPrinter) return;
+        if (!invoice) {
+            window.elintposPrinter.showToast('Invoice not ready to print');
+            return;
+        }
+        window.elintposPrinter.autoPrintOnSubmit(invoice);
+    }, 300);
 }
 
 // Export for use in other scripts

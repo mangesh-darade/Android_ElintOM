@@ -267,17 +267,24 @@ class BluetoothEscPosPrinter(private val context: Context) {
 			}
 		}
 		
-		// Print image using ESC * command
-		os.write(byteArrayOf(0x1B, 0x40)) // Initialize
-		os.write(byteArrayOf(0x1B, 0x33, 0x18)) // Set line spacing
-		for (y in 0 until height) {
-			os.write(byteArrayOf(0x1B, 0x2A, 0x00, widthBytes.toByte(), (widthBytes and 0xFF).toByte()))
-			os.write(imageData, y * widthBytes, widthBytes)
-			os.write(byteArrayOf(0x0A)) // Line feed
+		os.write(byteArrayOf(0x1B, 0x40))
+		var top = 0
+		while (top < height) {
+			val band = minOf(256, height - top)
+			os.write(
+				byteArrayOf(
+					0x1D, 0x76, 0x30, 0x00,
+					(widthBytes and 0xFF).toByte(),
+					((widthBytes shr 8) and 0xFF).toByte(),
+					(band and 0xFF).toByte(),
+					((band shr 8) and 0xFF).toByte()
+				)
+			)
+			os.write(imageData, top * widthBytes, band * widthBytes)
+			top += band
 		}
-		os.write(byteArrayOf(0x1B, 0x33, 0x30)) // Reset line spacing
-		os.write(byteArrayOf(0x1B, 0x64, 0x02)) // Feed 2 lines
-		os.write(byteArrayOf(0x1D, 0x56, 0x42, 0x03)) // Cut paper
+		os.write(byteArrayOf(0x1B, 0x64, 0x03))
+		os.write(byteArrayOf(0x1D, 0x56, 0x42, 0x00))
 		os.flush()
 		
 		scaledBitmap.recycle()

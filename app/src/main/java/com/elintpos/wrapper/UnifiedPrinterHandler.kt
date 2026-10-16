@@ -12,6 +12,7 @@ import com.elintpos.wrapper.escpos.LanEscPosPrinter
 import com.elintpos.wrapper.escpos.UsbEscPosPrinter
 import com.elintpos.wrapper.printer.PrinterConfigManager
 import com.elintpos.wrapper.printer.vendor.EpsonPrinter
+import com.elintpos.wrapper.printer.vendor.TecMiK8Printer
 import com.elintpos.wrapper.printer.vendor.XPrinter
 import com.elintpos.wrapper.printer.vendor.VendorPrinter
 import java.io.IOException
@@ -30,6 +31,7 @@ class UnifiedPrinterHandler(private val context: Context) {
     private val epsonPrinter = EpsonPrinter(context)
     private val xPrinter = XPrinter(context)
     private val vendorPrinter = VendorPrinter(context)
+    private val tecMiK8Printer = TecMiK8Printer(context)
     
     // Printer instances (created on demand)
     private var bluetoothPrinter: BluetoothEscPosPrinter? = null
@@ -63,6 +65,24 @@ class UnifiedPrinterHandler(private val context: Context) {
                 else -> "${profile.paperWidth} dots"
             }
             Log.d(TAG, "Printing with profile: ${profile.name}, type: ${profile.type}, paper size: $paperSizeMm (${profile.paperWidth} dots)")
+
+            val prepared = com.elintpos.wrapper.printer.ReceiptText.prepare(text)
+            if (isInvoice(prepared) &&
+                profile.type != PrinterConfigManager.TYPE_TECMI_K8 &&
+                !looksLikeHtml(prepared)
+            ) {
+                return printInvoiceColumns(profile, prepared)
+            }
+            if (profile.type == PrinterConfigManager.TYPE_TECMI_K8 && looksLikeHtml(prepared)) {
+                Log.d(TAG, "K8 HTML bill, printing as raster bitmap")
+                return com.elintpos.wrapper.printer.HtmlInvoicePrinter(context)
+                    .printHtmlInvoice(prepared, profile.type)
+            }
+            val receipt = if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
+                prepared
+            } else {
+                com.elintpos.wrapper.printer.ReceiptText.flatten(prepared)
+            }
             
             // Connect to printer if needed
             val connectResult = connectToPrinter(profile)
@@ -71,7 +91,7 @@ class UnifiedPrinterHandler(private val context: Context) {
             }
             
             // Print using the configured printer with configured paper size
-            val printResult = printWithProfile(profile, text)
+            val printResult = printWithProfile(profile, receipt)
             
             // Update last used
             printerConfigManager.setLastUsedProfile(profile.id)
@@ -100,6 +120,7 @@ class UnifiedPrinterHandler(private val context: Context) {
                 "epson" -> PrinterConfigManager.TYPE_EPSON
                 "xprinter" -> PrinterConfigManager.TYPE_XPRINTER
                 "vendor" -> PrinterConfigManager.TYPE_VENDOR
+                "tecmi", "tecmi_k8", "tecmi k8", "k8" -> PrinterConfigManager.TYPE_TECMI_K8
                 else -> preferType.lowercase()
             }
             
@@ -252,6 +273,14 @@ class UnifiedPrinterHandler(private val context: Context) {
                     }
                     PrintResult(true, "Vendor printer ready")
                 }
+
+                PrinterConfigManager.TYPE_TECMI_K8 -> {
+                    if (!tecMiK8Printer.isAvailable()) {
+                        return PrintResult(false, "TecMI K8 SDK not available")
+                    }
+                    val connected = tecMiK8Printer.connect()
+                    PrintResult(connected.success, connected.message)
+                }
                 
                 else -> PrintResult(false, "Unknown printer type: ${profile.type}")
             }
@@ -261,6 +290,55 @@ class UnifiedPrinterHandler(private val context: Context) {
         }
     }
     
+    private fun isInvoice(text: String): Boolean {
+        return text.contains("TAX INVOICE", ignoreCase = true) ||
+            text.contains("Item Name", ignoreCase = true) ||
+            text.contains("Grand Total", ignoreCase = true)
+    }
+
+    /**
+     * The USB profile in use is a 58mm text printer. It cuts every line at
+     * about 32 letters. Draw the same columns as the 80mm bill and send
+     * that picture instead.
+     */
+    private fun printInvoiceColumns(
+        profile: PrinterConfigManager.PrinterConfig,
+        text: String
+    ): PrintResult {
+        val connectResult = connectToPrinter(profile)
+        if (!connectResult.success) return connectResult
+        val width = profile.paperWidth.coerceAtLeast(384)
+        val bitmap = com.elintpos.wrapper.printer.K8BillBitmap.renderRows(
+            com.elintpos.wrapper.printer.ReceiptLayout.build(text),
+            width
+        )
+        return try {
+            when (profile.type) {
+                PrinterConfigManager.TYPE_USB -> {
+                    val printer = usbPrinter ?: return PrintResult(false, "USB printer not connected")
+                    printer.printImage(bitmap, width)
+                    PrintResult(true, "Invoice printed in columns")
+                }
+                PrinterConfigManager.TYPE_BLUETOOTH -> {
+                    val printer = bluetoothPrinter ?: return PrintResult(false, "Bluetooth printer not connected")
+                    printer.printImage(bitmap, width)
+                    PrintResult(true, "Invoice printed in columns")
+                }
+                PrinterConfigManager.TYPE_LAN -> {
+                    val printer = lanPrinter ?: return PrintResult(false, "LAN printer not connected")
+                    printer.printImage(bitmap, width)
+                    PrintResult(true, "Invoice printed in columns")
+                }
+                else -> printWithProfile(profile, text)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Column invoice print failed: ${e.message}", e)
+            PrintResult(false, "Invoice print failed: ${e.message}")
+        } finally {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+    }
+
     /**
      * Print text using the configured printer profile
      */
@@ -368,6 +446,17 @@ class UnifiedPrinterHandler(private val context: Context) {
                         PrintResult(false, "Vendor print failed")
                     }
                 }
+
+                PrinterConfigManager.TYPE_TECMI_K8 -> {
+                    val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+                    val printed = tecMiK8Printer.printText(
+                        text = text,
+                        lineSpacing = profile.lineSpacing,
+                        cutMode = cutMode,
+                        paperWidth = profile.paperWidth
+                    )
+                    PrintResult(printed.success, printed.message)
+                }
                 
                 else -> PrintResult(false, "Unknown printer type: ${profile.type}")
             }
@@ -389,6 +478,18 @@ class UnifiedPrinterHandler(private val context: Context) {
         preferType: String? = null
     ): PrintResult {
         val profile = getPrinterProfile(preferType) ?: return PrintResult(false, "No printer configured")
+
+        if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
+            val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+            val printed = tecMiK8Printer.printBarcode(
+                data = data,
+                barcodeType = barcodeType,
+                height = height,
+                width = width,
+                cutMode = cutMode
+            )
+            return PrintResult(printed.success, printed.message)
+        }
         
         if (profile.type == PrinterConfigManager.TYPE_LAN && lanPrinter != null) {
             return try {
@@ -416,6 +517,12 @@ class UnifiedPrinterHandler(private val context: Context) {
         preferType: String? = null
     ): PrintResult {
         val profile = getPrinterProfile(preferType) ?: return PrintResult(false, "No printer configured")
+
+        if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
+            val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+            val printed = tecMiK8Printer.printQRCode(data, size, cutMode)
+            return PrintResult(printed.success, printed.message)
+        }
         
         if (profile.type == PrinterConfigManager.TYPE_LAN && lanPrinter != null) {
             return try {
@@ -434,6 +541,29 @@ class UnifiedPrinterHandler(private val context: Context) {
     }
     
     /**
+     * Open the cash drawer on the TecMI K8 built-in printer.
+     */
+    fun openCashDrawer(): PrintResult {
+        val profile = getPrinterProfile(null)
+            ?: return PrintResult(false, "No printer configured")
+        if (profile.type != PrinterConfigManager.TYPE_TECMI_K8) {
+            return PrintResult(false, "Select the TecMI K8 printer to open the cash drawer")
+        }
+        val opened = tecMiK8Printer.openCashDrawer()
+        return PrintResult(opened.success, opened.message)
+    }
+
+    private fun looksLikeHtml(text: String): Boolean {
+        val trimmed = text.trim()
+        return trimmed.startsWith("<!DOCTYPE", ignoreCase = true) ||
+            trimmed.startsWith("<html", ignoreCase = true) ||
+            (trimmed.contains("<html", ignoreCase = true) && trimmed.contains("</html>", ignoreCase = true)) ||
+            trimmed.contains("<body", ignoreCase = true) ||
+            trimmed.contains("<table", ignoreCase = true) ||
+            trimmed.contains("<style", ignoreCase = true)
+    }
+
+    /**
      * Print HTML invoice as bitmap
      * 
      * Renders HTML in WebView, captures as bitmap, scales to printer width, and prints
@@ -442,6 +572,36 @@ class UnifiedPrinterHandler(private val context: Context) {
      * @param preferType Preferred printer type (optional)
      * @return PrintResult with success status and message
      */
+    fun printRasterBitmap(bitmap: android.graphics.Bitmap, preferType: String? = null): PrintResult {
+        val profile = getPrinterProfile(preferType)
+            ?: return PrintResult(false, "No printer configured. Please configure a printer in settings.")
+        val connectResult = connectToPrinter(profile)
+        if (!connectResult.success) return connectResult
+        return try {
+            when (profile.type) {
+                PrinterConfigManager.TYPE_USB -> {
+                    val printer = usbPrinter ?: return PrintResult(false, "USB printer not connected")
+                    printer.printImage(bitmap, profile.paperWidth)
+                    PrintResult(true, "Invoice printed")
+                }
+                PrinterConfigManager.TYPE_BLUETOOTH -> {
+                    val printer = bluetoothPrinter ?: return PrintResult(false, "Bluetooth printer not connected")
+                    printer.printImage(bitmap, profile.paperWidth)
+                    PrintResult(true, "Invoice printed")
+                }
+                PrinterConfigManager.TYPE_LAN -> {
+                    val printer = lanPrinter ?: return PrintResult(false, "LAN printer not connected")
+                    printer.printImage(bitmap, profile.paperWidth)
+                    PrintResult(true, "Invoice printed")
+                }
+                else -> PrintResult(false, "This printer cannot print the invoice view")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Raster invoice failed: ${e.message}", e)
+            PrintResult(false, "Invoice print failed: ${e.message}")
+        }
+    }
+
     fun printHtmlInvoice(htmlContent: String, preferType: String? = null): PrintResult {
         return try {
             val htmlInvoicePrinter = com.elintpos.wrapper.printer.HtmlInvoicePrinter(context)
@@ -463,6 +623,7 @@ class UnifiedPrinterHandler(private val context: Context) {
             bluetoothPrinter?.close()
             usbPrinter?.close()
             lanPrinter?.close()
+            tecMiK8Printer.disconnect()
         } catch (e: Exception) {
             Log.e(TAG, "Error closing printers: ${e.message}", e)
         }

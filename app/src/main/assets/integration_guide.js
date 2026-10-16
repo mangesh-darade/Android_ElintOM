@@ -40,8 +40,26 @@ function isPrinterConnected() {
 }
 
 /**
- * Get detailed printer status
+ * Open the TecMI K8 cash drawer.
  */
+function openCashDrawer() {
+    try {
+        if (typeof ElintPOSNative.openCashDrawer !== 'function') {
+            console.error('Cash drawer is not available');
+            return false;
+        }
+        const result = JSON.parse(ElintPOSNative.openCashDrawer());
+        if (!result.ok) {
+            console.error('Cash drawer failed:', result.msg);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        console.error('Cash drawer error:', e);
+        return false;
+    }
+}
+
 function getPrinterStatus() {
     try {
         return JSON.parse(ElintPOSNative.getPrinterStatus());
@@ -470,6 +488,7 @@ window.ElintPOSPrinting = {
     configurePrinter,
     isPrinterConnected,
     getPrinterStatus,
+    openCashDrawer,
     openPrinterManagement,
     getAvailablePrinters,
     showToast,

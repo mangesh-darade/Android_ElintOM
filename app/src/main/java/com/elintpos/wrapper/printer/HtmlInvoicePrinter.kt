@@ -1,8 +1,10 @@
 package com.elintpos.wrapper.printer
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.util.Log
 import com.elintpos.wrapper.UnifiedPrinterHandler
+import com.elintpos.wrapper.printer.vendor.TecMiK8Printer
 import java.io.File
 import java.io.FileWriter
 import java.io.PrintWriter
@@ -12,13 +14,10 @@ import java.util.Locale
 import java.util.regex.Pattern
 
 /**
- * HTML Invoice Printer - Converts HTML to text and prints as plain text
- * 
- * Flow:
- * 1. HTML Invoice Content
- * 2. ↓ Convert HTML to plain text (remove tags, extract text)
- * 3. ↓ Format text for thermal printer
- * 4. ↓ Printer SDK → printText()
+ * HTML Invoice Printer.
+ *
+ * TecMI K8 prints the bill as a raster bitmap (₹ and Marathi/Hindi stay intact).
+ * Other printers still convert HTML to plain text and call printText().
  */
 class HtmlInvoicePrinter(private val context: Context) {
     
@@ -49,7 +48,19 @@ class HtmlInvoicePrinter(private val context: Context) {
                 )
             }
             
-            Log.d(TAG, "Printing HTML invoice as text with profile: ${profile.name}, paper width: ${profile.paperWidth} dots")
+            Log.d(TAG, "Printing HTML invoice with profile: ${profile.name}, paper width: ${profile.paperWidth} dots")
+
+            val widePaper = profile.paperWidth >= PrinterConfigManager.PAPER_80MM
+            val canDrawView = profile.type == PrinterConfigManager.TYPE_TECMI_K8 ||
+                profile.type == PrinterConfigManager.TYPE_USB ||
+                profile.type == PrinterConfigManager.TYPE_BLUETOOTH ||
+                profile.type == PrinterConfigManager.TYPE_LAN
+            if (widePaper && canDrawView) {
+                return printScreenOnPaper(htmlContent, profile, preferType)
+            }
+            if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
+                return printK8BillBitmap(htmlContent, profile)
+            }
             
             // Step 1: Convert HTML to plain text
             val plainText = convertHtmlToText(htmlContent)
@@ -117,6 +128,96 @@ class HtmlInvoicePrinter(private val context: Context) {
         }
     }
     
+    /**
+     * Draw the on-screen invoice at the printer width so an 80mm XP-80
+     * gets the same logo, shop name and columns as the view.
+     */
+    private fun printScreenOnPaper(
+        htmlContent: String,
+        profile: PrinterConfigManager.PrinterConfig,
+        preferType: String?
+    ): UnifiedPrinterHandler.PrintResult {
+        val paper = profile.paperWidth.coerceAtLeast(PrinterConfigManager.PAPER_58MM)
+        val layoutWidth = if (paper >= PrinterConfigManager.PAPER_80MM) 800 else paper
+        val rendered = try {
+            K8BillBitmap.renderHtml(context, htmlContent, layoutWidth)
+        } catch (e: Exception) {
+            Log.e(TAG, "Invoice view raster failed: ${e.message}", e)
+            return UnifiedPrinterHandler.PrintResult(false, "Invoice view failed: ${e.message}")
+        }
+        val bitmap = fitToPaper(rendered, paper)
+        return try {
+            if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
+                val printer = TecMiK8Printer(context)
+                val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+                val printed = printer.printBitmap(bitmap, cutMode)
+                UnifiedPrinterHandler.PrintResult(printed.success, printed.message)
+            } else {
+                unifiedPrinterHandler.printRasterBitmap(bitmap, preferType)
+            }
+        } finally {
+            if (bitmap !== rendered && !rendered.isRecycled) rendered.recycle()
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+    }
+
+    private fun fitToPaper(source: Bitmap, paperWidth: Int): Bitmap {
+        if (source.width == paperWidth) return source
+        val height = (source.height * (paperWidth.toFloat() / source.width)).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(source, paperWidth, height, true)
+    }
+
+    /**
+     * K8 printString() is GBK. Render the bill and send printRasterBitmap().
+     */
+    private fun printK8BillBitmap(
+        htmlContent: String,
+        profile: PrinterConfigManager.PrinterConfig
+    ): UnifiedPrinterHandler.PrintResult {
+        val printer = TecMiK8Printer(context)
+        val bitmap = try {
+            K8BillBitmap.renderHtml(context, htmlContent, profile.paperWidth)
+        } catch (e: Exception) {
+            Log.e(TAG, "K8 bill raster failed: ${e.message}", e)
+            saveErrorLog(
+                errorType = "K8_RASTER_FAILED",
+                message = e.message ?: "Raster failed",
+                exception = e,
+                htmlContent = htmlContent,
+                profile = profile
+            )
+            return UnifiedPrinterHandler.PrintResult(
+                success = false,
+                message = "K8 bill bitmap failed: ${e.message}"
+            )
+        }
+        return try {
+            val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+            val printed = printer.printBitmap(bitmap, cutMode)
+            if (!printed.success) {
+                saveErrorLog(
+                    errorType = "PRINT_FAILED",
+                    message = printed.message,
+                    htmlContent = htmlContent,
+                    profile = profile
+                )
+                return UnifiedPrinterHandler.PrintResult(false, printed.message)
+            }
+            if (CashSale.shouldOpenDrawer(htmlContent)) {
+                val drawer = printer.openCashDrawer()
+                val message = if (drawer.success) {
+                    "${printed.message}. Cash drawer opened"
+                } else {
+                    "${printed.message}. Cash drawer: ${drawer.message}"
+                }
+                return UnifiedPrinterHandler.PrintResult(true, message)
+            }
+            UnifiedPrinterHandler.PrintResult(true, printed.message)
+        } finally {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+    }
+
     /**
      * Convert HTML content to plain text
      * Removes HTML tags, decodes entities, and formats for thermal printer
@@ -362,6 +463,7 @@ class HtmlInvoicePrinter(private val context: Context) {
                 "xprinter" -> PrinterConfigManager.TYPE_XPRINTER
                 "vendor" -> PrinterConfigManager.TYPE_VENDOR
                 "autoreplyprint" -> PrinterConfigManager.TYPE_AUTOREPLYPRINT
+                "tecmi", "tecmi_k8", "tecmi k8", "k8" -> PrinterConfigManager.TYPE_TECMI_K8
                 else -> preferType.lowercase()
             }
             

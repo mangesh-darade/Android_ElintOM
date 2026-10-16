@@ -45,7 +45,7 @@ object AppConfig {
         const val DEFAULT_TIMEOUT_MS = 5000L
         
         /** Maximum print text length to prevent memory issues */
-        const val MAX_PRINT_TEXT_LENGTH = 100_000 // 100KB
+        const val MAX_PRINT_TEXT_LENGTH = 500_000 // invoice HTML with shop styles
         
         /** Default LAN printer port */
         const val DEFAULT_LAN_PORT = 9100

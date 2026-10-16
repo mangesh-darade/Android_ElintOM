@@ -11,6 +11,7 @@ import com.elintpos.wrapper.printer.PrinterConfigManager
 import com.elintpos.wrapper.printer.PrinterTester
 import com.elintpos.wrapper.printer.vendor.AutoReplyPrint
 import com.elintpos.wrapper.printer.vendor.EpsonPrinter
+import com.elintpos.wrapper.printer.vendor.TecMiK8Printer
 import com.elintpos.wrapper.printer.vendor.VendorPrinter
 import com.elintpos.wrapper.printer.vendor.XPrinter
 import com.elintpos.wrapper.sdk.SdkDownloader
@@ -43,6 +44,12 @@ import org.json.JSONObject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import android.app.AlertDialog
+import android.os.Looper
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * JavaScript Bridge - Handles all communication between WebView JavaScript and native Android code
@@ -69,6 +76,8 @@ class JavaScriptBridge(
     private val xPrinter: XPrinter,
     private val vendorPrinter: VendorPrinter
 ) {
+
+    private val tecMiK8Printer = TecMiK8Printer(activity)
     
     // Get WebView lazily
     private val webView: WebView get() = webViewProvider()
@@ -308,6 +317,11 @@ class JavaScriptBridge(
     fun xprinterAvailable(): Boolean {
         return try { xPrinter.isAvailable() } catch (_: Exception) { false }
     }
+
+    @JavascriptInterface
+    fun tecmiK8Available(): Boolean {
+        return try { tecMiK8Printer.isAvailable() } catch (_: Exception) { false }
+    }
     
     // ==================== Printer Print Methods ====================
     
@@ -347,6 +361,74 @@ class JavaScriptBridge(
         }
     }
     
+    @JavascriptInterface
+    fun tecmiK8PrintText(text: String): String {
+        return try {
+            val textValidation = InputValidator.validatePrintText(text)
+            if (textValidation.isError()) {
+                return createErrorResponse(textValidation.getErrorMessage() ?: "Invalid text")
+            }
+            val sanitizedText = textValidation.getValueOrNull() ?: return createErrorResponse("Invalid text")
+            if (!tecMiK8Printer.isAvailable()) return createErrorResponse("TecMI K8 SDK not available")
+            val result = tecMiK8Printer.printText(sanitizedText)
+            if (result.success) createSuccessResponse(result.message) else createErrorResponse(result.message)
+        } catch (e: Exception) {
+            AppLogger.e("TecMI K8 print error", e, TAG)
+            createErrorResponse(e.message ?: "Print error")
+        }
+    }
+
+    @JavascriptInterface
+    fun tecmiK8GetStatus(): String {
+        return try {
+            if (!tecMiK8Printer.isAvailable()) return createErrorResponse("TecMI K8 SDK not available")
+            val result = tecMiK8Printer.statusText()
+            if (result.success) createSuccessResponse(result.message) else createErrorResponse(result.message)
+        } catch (e: Exception) {
+            AppLogger.e("TecMI K8 status error", e, TAG)
+            createErrorResponse(e.message ?: "Status error")
+        }
+    }
+
+    @JavascriptInterface
+    fun tecmiK8SelfTest(): String {
+        return try {
+            if (!tecMiK8Printer.isAvailable()) return createErrorResponse("TecMI K8 SDK not available")
+            val result = tecMiK8Printer.selfTest()
+            if (result.success) createSuccessResponse(result.message) else createErrorResponse(result.message)
+        } catch (e: Exception) {
+            AppLogger.e("TecMI K8 self-test error", e, TAG)
+            createErrorResponse(e.message ?: "Self-test error")
+        }
+    }
+
+    @JavascriptInterface
+    fun tecmiK8OpenCashDrawer(): String {
+        return openCashDrawer()
+    }
+
+    @JavascriptInterface
+    fun openCashDrawer(): String {
+        return try {
+            val result = unifiedPrinterHandler.openCashDrawer()
+            if (result.success) createSuccessResponse(result.message) else createErrorResponse(result.message)
+        } catch (e: Exception) {
+            AppLogger.e("Cash drawer error", e, TAG)
+            createErrorResponse(e.message ?: "Cash drawer error")
+        }
+    }
+
+    @JavascriptInterface
+    fun tecmiK8Disconnect(): String {
+        return try {
+            val result = tecMiK8Printer.disconnect()
+            if (result.success) createSuccessResponse(result.message) else createErrorResponse(result.message)
+        } catch (e: Exception) {
+            AppLogger.e("TecMI K8 disconnect error", e, TAG)
+            createErrorResponse(e.message ?: "Disconnect error")
+        }
+    }
+
     @JavascriptInterface
     fun vendorPrintText(text: String): String {
         return try {
@@ -445,7 +527,23 @@ class JavaScriptBridge(
         } else {
             // Checkbox is UNCHECKED → Direct print using configured printer SDK (no dialog)
             AppLogger.d("Direct print (no dialog) - showPrintDialog: $showPrintDialog", TAG)
-            val result = unifiedPrinterHandler.print(sanitizedContent, printerType)
+            if (looksLikeHtml(sanitizedContent)) {
+                if (isInvoicePayload(sanitizedContent) && !claimInvoicePrint()) {
+                    return createSuccessResponse("Invoice print already sent")
+                }
+                return printHtmlInvoice(sanitizedContent, printerType)
+            }
+            val prepared = com.elintpos.wrapper.printer.ReceiptText.prepare(sanitizedContent)
+            if (isInvoicePayload(prepared) && !claimInvoicePrint()) {
+                return createSuccessResponse("Invoice print already sent")
+            }
+            if (isInvoicePayload(prepared)) {
+                val liveHtml = captureInvoiceHtml()
+                if (liveHtml.contains("<table", ignoreCase = true) || liveHtml.contains("TAX INVOICE", ignoreCase = true)) {
+                    return printHtmlInvoice(liveHtml, printerType)
+                }
+            }
+            val result = unifiedPrinterHandler.print(prepared, printerType)
             return result.toJson()
         }
     }
@@ -758,6 +856,16 @@ class JavaScriptBridge(
     
     // ==================== Unified Print Methods ====================
     
+    private fun looksLikeHtml(text: String): Boolean {
+        val trimmed = text.trim()
+        return trimmed.startsWith("<!DOCTYPE", ignoreCase = true) ||
+            trimmed.startsWith("<html", ignoreCase = true) ||
+            (trimmed.contains("<html", ignoreCase = true) && trimmed.contains("</html>", ignoreCase = true)) ||
+            trimmed.contains("<body", ignoreCase = true) ||
+            trimmed.contains("<table", ignoreCase = true) ||
+            trimmed.contains("<style", ignoreCase = true)
+    }
+
     /**
      * STEP 8: Print from WebView - Auto-selects best printer
      * STEP 4: Daily use - no printer type selection needed
@@ -769,9 +877,26 @@ class JavaScriptBridge(
         
         // STEP 4: For daily use, always use "auto" to auto-select best printer
         val actualPrefer = if (prefer.isBlank() || prefer == "auto") "auto" else prefer
+        if (looksLikeHtmlDocument(text)) {
+            if (isInvoicePayload(text) && !claimInvoicePrint()) {
+                return createSuccessResponse("Invoice print already sent")
+            }
+            return printHtmlInvoice(text, actualPrefer)
+        }
+        val receipt = com.elintpos.wrapper.printer.ReceiptText.prepare(text)
+        if (isInvoicePayload(receipt) && !claimInvoicePrint()) {
+            return createSuccessResponse("Invoice print already sent")
+        }
+        if (isInvoicePayload(receipt)) {
+            val liveHtml = captureInvoiceHtml()
+            if (liveHtml.contains("<table", ignoreCase = true) || liveHtml.contains("TAX INVOICE", ignoreCase = true)) {
+                AppLogger.d("Printing the on-screen invoice view", TAG)
+                return printHtmlInvoice(liveHtml, actualPrefer)
+            }
+        }
         
         // Enhanced HTML detection - check for HTML tags and structure
-        val trimmedText = text.trim()
+        val trimmedText = receipt.trim()
         val isHtml = trimmedText.startsWith("<!DOCTYPE", ignoreCase = true) || 
                      trimmedText.startsWith("<html", ignoreCase = true) ||
                      (trimmedText.contains("<html", ignoreCase = true) && trimmedText.contains("</html>", ignoreCase = true)) ||
@@ -779,14 +904,14 @@ class JavaScriptBridge(
                       trimmedText.contains("<table", ignoreCase = true) || trimmedText.contains("<style", ignoreCase = true))
         
         if (isHtml) {
-            AppLogger.d("Detected HTML content (${text.length} chars), using bitmap printing via printHtmlInvoice", TAG)
+            AppLogger.d("Detected HTML content (${receipt.length} chars), using bitmap printing via printHtmlInvoice", TAG)
             // Use bitmap printing for HTML content - this renders HTML in WebView and prints as bitmap
-            return printHtmlInvoice(text, actualPrefer)
+            return printHtmlInvoice(receipt, actualPrefer)
         }
         
         // For plain text, use text-based printing
         AppLogger.d("Plain text detected, using text-based printing", TAG)
-        val result = unifiedPrinterHandler.print(text, actualPrefer)
+        val result = unifiedPrinterHandler.print(receipt, actualPrefer)
         
         activity.runOnUiThread {
             if (result.success) {
@@ -799,6 +924,57 @@ class JavaScriptBridge(
         return result.toJson()
     }
     
+    private var lastInvoicePrintMs = 0L
+
+    private fun isInvoicePayload(text: String): Boolean {
+        return text.contains("TAX INVOICE", ignoreCase = true) ||
+            text.contains("Item Name", ignoreCase = true)
+    }
+
+    private fun looksLikeHtmlDocument(text: String): Boolean {
+        val trimmed = text.trim()
+        return trimmed.startsWith("<!DOCTYPE", ignoreCase = true) ||
+            trimmed.startsWith("<html", ignoreCase = true) ||
+            trimmed.contains("<table", ignoreCase = true)
+    }
+
+    /** One bill can reach both the page script and our capture. Print it once. */
+    private fun claimInvoicePrint(): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(this) {
+            if (now - lastInvoicePrintMs < 8000) return false
+            lastInvoicePrintMs = now
+            return true
+        }
+    }
+
+    private fun captureInvoiceHtml(): String {
+        if (Looper.myLooper() == Looper.getMainLooper()) return ""
+        val latch = CountDownLatch(1)
+        val raw = AtomicReference("")
+        activity.runOnUiThread {
+            try {
+                webView.evaluateJavascript(
+                    "(function(){try{return (window.elintposInvoiceHtml&&elintposInvoiceHtml())||'';}catch(e){return '';}})()"
+                ) { value ->
+                    raw.set(value ?: "")
+                    latch.countDown()
+                }
+            } catch (e: Exception) {
+                AppLogger.e("Could not read the invoice view", e, TAG)
+                latch.countDown()
+            }
+        }
+        if (!latch.await(4, TimeUnit.SECONDS)) return ""
+        val value = raw.get()
+        if (value.isBlank() || value == "null" || value == "\"\"") return ""
+        return try {
+            JSONArray("[$value]").getString(0)
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
     /**
      * STEP 9: Show print failed dialog with Retry and Settings buttons
      */
@@ -1950,7 +2126,10 @@ class JavaScriptBridge(
             }
             
             // Check connection status (simplified - just check if any connection exists)
-            val isConnected = activity.isBtConnected || activity.isUsbConnected || activity.isLanConnected
+            val k8Connected = profile.type == PrinterConfigManager.TYPE_TECMI_K8 &&
+                tecMiK8Printer.isConnected()
+            val isConnected = activity.isBtConnected || activity.isUsbConnected ||
+                activity.isLanConnected || k8Connected
             
             // Get paper size in user-friendly format
             val paperSize = when (profile.paperWidth) {
@@ -2020,27 +2199,34 @@ class JavaScriptBridge(
                 return createErrorResponse("HTML content is empty")
             }
             
-            // Print HTML invoice as bitmap in background
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                try {
-                    val result = unifiedPrinterHandler.printHtmlInvoice(htmlContent, preferType)
-                    activity.runOnUiThread {
-                        if (result.success) {
-                            Toast.makeText(activity, "HTML invoice printed successfully", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(activity, "Print failed: ${result.message}", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                } catch (e: Exception) {
-                    AppLogger.e("Error printing HTML invoice", e, TAG)
-                    activity.runOnUiThread {
-                        Toast.makeText(activity, "Print error: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                return createErrorResponse("Print must run off the UI thread")
+            }
+            val executor = Executors.newSingleThreadExecutor()
+            val result = try {
+                val future = executor.submit<UnifiedPrinterHandler.PrintResult> {
+                    unifiedPrinterHandler.printHtmlInvoice(htmlContent, preferType)
+                }
+                future.get(45, TimeUnit.SECONDS)
+            } catch (e: TimeoutException) {
+                createErrorResponse("Print timed out")
+            } catch (e: Exception) {
+                val cause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
+                AppLogger.e("Error printing HTML invoice", cause, TAG)
+                createErrorResponse(cause.message ?: "Print error")
+            } finally {
+                executor.shutdownNow()
+            }
+            if (result is String) return result
+            val printed = result as UnifiedPrinterHandler.PrintResult
+            activity.runOnUiThread {
+                if (printed.success) {
+                    Toast.makeText(activity, "HTML invoice printed successfully", Toast.LENGTH_SHORT).show()
+                } else {
+                    showPrintFailedDialog(printed.message, htmlContent, preferType)
                 }
             }
-            
-            // Return immediately (async operation)
-            createSuccessResponse("HTML invoice print initiated")
+            if (printed.success) createSuccessResponse(printed.message) else createErrorResponse(printed.message)
         } catch (e: Exception) {
             AppLogger.e("Error in printHtmlInvoice", e, TAG)
             createErrorResponse(e.message ?: "Unknown error")
