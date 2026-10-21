@@ -46,6 +46,13 @@ class PreferencesManager(private val context: Context) {
         private const val KEY_SETTINGS_BUTTON_X = "settings_button_x"
         private const val KEY_SETTINGS_BUTTON_Y = "settings_button_y"
         private const val KEY_ADMIN_PIN = "admin_pin"
+        private const val KEY_PRINT_TOP_GAP = "print_top_gap_dots"
+        private const val KEY_PRINT_BOTTOM_GAP = "print_bottom_gap_dots"
+        private const val KEY_PRINT_CUT_MODE = "print_cut_mode"
+        const val DEFAULT_PRINT_TOP_GAP = 8
+        const val DEFAULT_PRINT_BOTTOM_GAP = 20
+        const val MAX_PRINT_TOP_GAP = 48
+        const val MAX_PRINT_BOTTOM_GAP = 120
     }
     
     // Setup preferences
@@ -92,7 +99,7 @@ class PreferencesManager(private val context: Context) {
     
     // App behavior preferences
     var autoStartEnabled: Boolean
-        get() = prefs.getBoolean(KEY_AUTO_START_ENABLED, true)
+        get() = prefs.getBoolean(KEY_AUTO_START_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_START_ENABLED, value).apply()
     
     var kioskEnabled: Boolean
@@ -124,6 +131,18 @@ class PreferencesManager(private val context: Context) {
     var adminPin: String
         get() = prefs.getString(KEY_ADMIN_PIN, "1234") ?: "1234"
         set(value) = prefs.edit().putString(KEY_ADMIN_PIN, value).apply()
+
+    var printTopGapDots: Int
+        get() = prefs.getInt(KEY_PRINT_TOP_GAP, DEFAULT_PRINT_TOP_GAP).coerceIn(0, MAX_PRINT_TOP_GAP)
+        set(value) = prefs.edit().putInt(KEY_PRINT_TOP_GAP, value.coerceIn(0, MAX_PRINT_TOP_GAP)).apply()
+
+    var printBottomGapDots: Int
+        get() = prefs.getInt(KEY_PRINT_BOTTOM_GAP, DEFAULT_PRINT_BOTTOM_GAP).coerceIn(0, MAX_PRINT_BOTTOM_GAP)
+        set(value) = prefs.edit().putInt(KEY_PRINT_BOTTOM_GAP, value.coerceIn(0, MAX_PRINT_BOTTOM_GAP)).apply()
+
+    var printCutMode: String
+        get() = prefs.getString(KEY_PRINT_CUT_MODE, "full_cut") ?: "full_cut"
+        set(value) = prefs.edit().putString(KEY_PRINT_CUT_MODE, value).apply()
     
     /**
      * Clear all preferences (use with caution)
@@ -148,7 +167,6 @@ class PreferencesManager(private val context: Context) {
     fun getBaseUrl(): String {
         val savedDomain = selectedDomain
         return if (savedDomain != null && savedDomain.isNotEmpty()) {
-            // If domain already has scheme, use it; otherwise add https://
             if (savedDomain.startsWith("http://") || savedDomain.startsWith("https://")) {
                 val url = savedDomain.trimEnd('/')
                 if (!url.endsWith("/")) "$url/" else url
@@ -166,7 +184,6 @@ class PreferencesManager(private val context: Context) {
     fun getBaseDomain(): String {
         val savedDomain = selectedDomain
         return if (savedDomain != null && savedDomain.isNotEmpty()) {
-            // Remove scheme if present
             savedDomain.replace(Regex("^https?://"), "").trimEnd('/')
         } else {
             com.elintpos.wrapper.config.AppConfig.Network.DEFAULT_DOMAIN

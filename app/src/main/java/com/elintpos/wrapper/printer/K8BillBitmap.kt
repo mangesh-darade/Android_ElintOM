@@ -15,6 +15,7 @@ import android.text.TextPaint
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import com.elintpos.wrapper.utils.PreferencesManager
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -37,8 +38,24 @@ object K8BillBitmap {
 
     private const val TAG = "K8BillBitmap"
     private const val RENDER_TIMEOUT_SEC = 12L
-    private const val POLL_MS = 200L
-    private const val MAX_POLLS = 30
+    private const val POLL_MS = 100L
+    private const val SEED_HEIGHT = 1600
+    private const val HEIGHT_JS = """
+        (function(){
+            try {
+                var el = document.getElementById('wrapper') || document.getElementById('receiptData') || document.body;
+                var h = el ? Math.max(el.scrollHeight || 0, el.offsetHeight || 0) : 0;
+                var imgs = document.images || [];
+                var pending = 0;
+                for (var i = 0; i < imgs.length; i++) {
+                    if (!imgs[i].complete) pending++;
+                }
+                return String(Math.round(h)) + ',' + pending;
+            } catch (err) {
+                return '0,1';
+            }
+        })()
+    """
 
     fun renderText(text: String, widthPx: Int): Bitmap {
         val width = widthPx.coerceAtLeast(8)
@@ -402,7 +419,7 @@ object K8BillBitmap {
                 webView.isVerticalScrollBarEnabled = false
                 webView.isHorizontalScrollBarEnabled = false
                 webView.settings.apply {
-                    javaScriptEnabled = false
+                    javaScriptEnabled = true
                     defaultTextEncodingName = "utf-8"
                     useWideViewPort = false
                     loadWithOverviewMode = false
@@ -411,23 +428,28 @@ object K8BillBitmap {
                     loadsImagesAutomatically = true
                     textZoom = 100
                 }
+                webView.setInitialScale(100)
                 holder.setBackgroundColor(Color.WHITE)
-                holder.addView(
-                    webView,
-                    FrameLayout.LayoutParams(width, FrameLayout.LayoutParams.WRAP_CONTENT)
-                )
-                // Keep it in the window so layout height is real, but off the visible screen.
-                holder.translationX = 100000f
-                root.addView(
-                    holder,
-                    FrameLayout.LayoutParams(width, FrameLayout.LayoutParams.WRAP_CONTENT)
-                )
+                holder.alpha = 0f
+                val seed = FrameLayout.LayoutParams(width, SEED_HEIGHT)
+                holder.addView(webView, FrameLayout.LayoutParams(width, SEED_HEIGHT))
+                root.addView(holder, seed)
+                val widthSpec = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY)
+                val heightSpec = View.MeasureSpec.makeMeasureSpec(SEED_HEIGHT, View.MeasureSpec.EXACTLY)
+                holder.measure(widthSpec, heightSpec)
+                holder.layout(0, 0, width, SEED_HEIGHT)
+                webView.measure(widthSpec, heightSpec)
+                webView.layout(0, 0, width, SEED_HEIGHT)
 
                 val pageStarted = AtomicBoolean(false)
+                fun startPolling() {
+                    if (pageStarted.compareAndSet(false, true)) {
+                        handler.post { pollHeight(webView, width, holder, root, done, bitmapRef, errorRef, latch, handler) }
+                    }
+                }
                 webView.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView?, url: String?) {
-                        if (!pageStarted.compareAndSet(false, true)) return
-                        view?.post { pollHeight(view, activity, width, holder, root, done, bitmapRef, errorRef, latch) }
+                        startPolling()
                     }
 
                     override fun onReceivedError(
@@ -442,6 +464,10 @@ object K8BillBitmap {
                 }
                 val base = Regex("""(?i)<base[^>]+href=["']([^"']+)["']""").find(document)?.groupValues?.getOrNull(1)
                 webView.loadDataWithBaseURL(base, document, "text/html", "UTF-8", null)
+                // Watchdog: If onPageFinished is delayed by network or subresources, start polling anyway
+                handler.postDelayed({
+                    startPolling()
+                }, 400)
                 handler.postDelayed({
                     finish(
                         done,
@@ -464,6 +490,28 @@ object K8BillBitmap {
         }
         errorRef.get()?.let { throw it }
         return bitmapRef.get() ?: throw IllegalStateException("K8 bill render produced no bitmap")
+    }
+
+    private fun cropBlank(source: Bitmap, topPad: Int, bottomPad: Int): Bitmap {
+        fun rowHasInk(y: Int): Boolean {
+            var x = 0
+            while (x < source.width) {
+                val pixel = source.getPixel(x, y)
+                if (Color.red(pixel) < 245 || Color.green(pixel) < 245 || Color.blue(pixel) < 245) return true
+                x += 4
+            }
+            return false
+        }
+        var top = 0
+        while (top < source.height && !rowHasInk(top)) top++
+        var bottom = source.height - 1
+        while (bottom > top && !rowHasInk(bottom)) bottom--
+        if (top >= bottom) return source
+        val y = (top - topPad).coerceAtLeast(0)
+        val end = (bottom + bottomPad).coerceAtMost(source.height - 1)
+        val height = end - y + 1
+        if (y == 0 && height == source.height) return source
+        return Bitmap.createBitmap(source, 0, y, source.width, height)
     }
 
     fun hasInk(bitmap: Bitmap): Boolean {
@@ -489,16 +537,15 @@ object K8BillBitmap {
 
     private fun pollHeight(
         webView: WebView,
-        activity: Activity,
         width: Int,
         holder: FrameLayout,
         root: ViewGroup,
         done: AtomicBoolean,
         bitmapRef: AtomicReference<Bitmap>,
         errorRef: AtomicReference<Throwable>,
-        latch: CountDownLatch
+        latch: CountDownLatch,
+        handler: Handler
     ) {
-        val density = activity.resources.displayMetrics.density
         val polls = AtomicInteger(0)
         val previous = AtomicInteger(-1)
         val stable = AtomicInteger(0)
@@ -506,22 +553,45 @@ object K8BillBitmap {
             override fun run() {
                 if (done.get()) return
                 val attempt = polls.incrementAndGet()
-                val widthSpec = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY)
-                val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-                webView.measure(widthSpec, heightSpec)
-                val current = K8BillLayout.heightPx(webView.measuredHeight, webView.contentHeight, density)
-                val stableNow = K8BillLayout.nextStableCount(previous.get(), current, stable.get())
-                previous.set(current)
-                stable.set(stableNow)
-                val settled = stableNow >= K8BillLayout.STABLE_READS && attempt >= 8
-                if (settled || attempt >= MAX_POLLS) {
-                    captureNow(webView, width, current, holder, root, done, bitmapRef, errorRef, latch)
-                } else {
-                    webView.postDelayed(this, POLL_MS)
+                webView.evaluateJavascript(HEIGHT_JS) { raw ->
+                    if (done.get()) return@evaluateJavascript
+                    val (scroll, pending) = parseMeasurement(raw)
+                    @Suppress("DEPRECATION")
+                    val scale = webView.scale
+                    val content = webView.contentHeight
+                    val current = when {
+                        scroll >= K8BillLayout.MIN_HEIGHT_PX ->
+                            K8BillLayout.documentHeight(scroll, 0, scale)
+                        content in K8BillLayout.MIN_HEIGHT_PX until SEED_HEIGHT - 20 ->
+                            K8BillLayout.documentHeight(0, content, scale)
+                        attempt >= 15 && content >= K8BillLayout.MIN_HEIGHT_PX ->
+                            K8BillLayout.documentHeight(0, content, scale)
+                        else -> 0
+                    }
+                    val stableNow = K8BillLayout.nextStableCount(previous.get(), current, stable.get())
+                    previous.set(current)
+                    stable.set(stableNow)
+                    if (attempt == 1 || attempt % 10 == 0) {
+                        Log.d(TAG, "Bill measure attempt=$attempt height=$current scroll=$scroll content=${webView.contentHeight} scale=$scale pending=$pending")
+                    }
+                    if (K8BillLayout.readyToCapture(current, stableNow, attempt, pending > 0)) {
+                        captureNow(webView, width, current, holder, root, done, bitmapRef, errorRef, latch)
+                    } else {
+                        handler.postDelayed(this, POLL_MS)
+                    }
                 }
             }
         }
-        webView.post(task)
+        handler.post(task)
+    }
+
+    private fun parseMeasurement(raw: String?): Pair<Int, Int> {
+        if (raw.isNullOrBlank() || raw == "null") return 0 to 1
+        val text = raw.trim().removeSurrounding("\"").replace("\\\"", "")
+        val parts = text.split(',')
+        val height = parts.getOrNull(0)?.toFloatOrNull()?.toInt() ?: 0
+        val pending = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        return height to pending
     }
 
     private fun captureNow(
@@ -539,13 +609,20 @@ object K8BillBitmap {
             if (reportedHeight < K8BillLayout.MIN_HEIGHT_PX) {
                 throw IllegalStateException("K8 bill height was $reportedHeight")
             }
-            val height = reportedHeight
+            val height = reportedHeight.coerceAtMost(K8BillLayout.MAX_HEIGHT_PX)
+            val widthSpec = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY)
+            val heightSpec = View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
+            webView.measure(widthSpec, heightSpec)
+            holder.measure(widthSpec, heightSpec)
             webView.layout(0, 0, width, height)
             holder.layout(0, 0, width, height)
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
+            val raw = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(raw)
             canvas.drawColor(Color.WHITE)
             webView.draw(canvas)
+            val gaps = PreferencesManager(webView.context)
+            val bitmap = cropBlank(raw, gaps.printTopGapDots, 6)
+            if (bitmap !== raw && !raw.isRecycled) raw.recycle()
             if (!hasInk(bitmap)) {
                 bitmap.recycle()
                 throw IllegalStateException("K8 bill bitmap was blank")
@@ -604,19 +681,217 @@ object K8BillBitmap {
     }
 
     private fun tightenViewport(html: String, width: Int): String {
+        val fontPt = Regex("""name=["']elint-font-pt["'][^>]*content=["'](\d+)["']""", RegexOption.IGNORE_CASE)
+            .find(html)?.groupValues?.get(1)?.toIntOrNull()
+            ?: Regex("""font-size\s*:\s*(\d+)pt""", RegexOption.IGNORE_CASE)
+                .find(html)?.groupValues?.get(1)?.toIntOrNull()
+            ?: 12
+        val body = K8BillLayout.bodyPx(fontPt, width)
+        val table = (body * 0.92f).toInt()
+        val padY = (body * 0.28f).toInt().coerceAtLeast(5)
+        val padX = (body * 0.22f).toInt().coerceAtLeast(4)
+        val logo = (width * 0.38f).toInt().coerceIn(120, 240)
+        val showLines = Regex(
+            """name=["']elint-invoice-lines["'][^>]*content=["'](\d+)["']""",
+            RegexOption.IGNORE_CASE
+        ).find(html)?.groupValues?.get(1) != "0"
+        val lineCss = if (showLines) """
+            table.table thead th {
+                border-top: 2px solid #000000 !important;
+                border-bottom: 2px solid #000000 !important;
+            }
+            table.table tfoot tr:first-child th {
+                border-top: 2px solid #000000 !important;
+                border-bottom: 2px solid #000000 !important;
+            }
+            table.table tfoot tr:last-child th {
+                border-bottom: 2px solid #000000 !important;
+            }
+            .k8-thanks { border-top: 2px dashed #000000 !important; }
+        """ else """
+            table.table th, table.table td, table.table tr, .k8-thanks {
+                border: none !important;
+            }
+        """
         val viewport = """<meta name="viewport" content="width=$width, initial-scale=1">"""
-        val fit = """<style id="k8-fit">html,body{margin:0;background:#fff;color:#000;width:${width}px;} img,table{max-width:100%;height:auto;} table,th,td,tr{border:none !important;outline:none !important;}</style>"""
+        val fit = """<style id="k8-fit">
+            html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                width: ${width}px !important;
+                height: auto !important;
+                min-height: 0 !important;
+                overflow: visible !important;
+                font-size: ${body}px !important;
+                line-height: 1.4 !important;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Nirmala UI", "Mangal" !important;
+                -webkit-font-smoothing: antialiased;
+            }
+            #wrapper {
+                width: 100% !important;
+                max-width: ${width}px !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 0 6px 0 !important;
+                box-sizing: border-box !important;
+            }
+            #receiptData, #receipt-data {
+                margin: 0 !important;
+                padding: 0 !important;
+                height: auto !important;
+                font-size: ${body}px !important;
+                line-height: 1.4 !important;
+            }
+            .row, [class*="col-"] {
+                width: 100% !important;
+                max-width: 100% !important;
+                display: block !important;
+                box-sizing: border-box !important;
+                position: relative !important;
+            }
+            .no-print, .alert, .btn, #buttons {
+                display: none !important;
+            }
+            img {
+                display: block !important;
+                margin: 0 auto 4px !important;
+                max-width: ${logo}px !important;
+                max-height: 78px !important;
+                height: auto !important;
+            }
+            h3 {
+                margin: 2px 0 4px !important;
+                font-size: ${(body * 1.55f).toInt()}px !important;
+                line-height: 1.2 !important;
+                font-weight: 800 !important;
+                text-align: center !important;
+            }
+            p, #receipt-data, #receipt-data div {
+                font-size: ${body}px !important;
+                line-height: 1.4 !important;
+            }
+            p {
+                margin: 4px 0 !important;
+            }
+            table.table {
+                width: 100% !important;
+                max-width: 100% !important;
+                border-collapse: collapse !important;
+                table-layout: auto !important;
+                margin-top: 8px !important;
+            }
+            table.table th, table.table td {
+                padding: ${padY}px ${padX}px !important;
+                color: #000000 !important;
+                vertical-align: middle !important;
+                font-size: ${table}px !important;
+                line-height: 1.35 !important;
+                word-wrap: break-word !important;
+                overflow-wrap: break-word !important;
+                border: none !important;
+                background: #ffffff !important;
+            }
+            table.table thead th {
+                font-weight: 700 !important;
+            }
+            $lineCss
+            table.table tfoot th {
+                vertical-align: top !important;
+            }
+            table.table tfoot th[colspan] {
+                text-align: left !important;
+            }
+            table.table tfoot tr:first-child th {
+                font-weight: 700 !important;
+            }
+            table.table tfoot th span {
+                float: none !important;
+                display: block !important;
+                text-align: left !important;
+                padding: 2px 0 0 !important;
+                font-size: 0.82em !important;
+                font-weight: 600 !important;
+            }
+            .k8-pay table, .k8-pay td {
+                border: none !important;
+                margin-top: 6px !important;
+            }
+            .k8-pay table { width: 100% !important; table-layout: fixed !important; }
+            .k8-pay td:nth-child(1) { text-align: left !important; width: 34% !important; }
+            .k8-pay td:nth-child(2) { text-align: center !important; width: 38% !important; }
+            .k8-pay td:nth-child(3) { text-align: right !important; width: 28% !important; }
+            .k8-save { text-align: center !important; font-weight: 800 !important; margin: 8px 0 !important; }
+            .k8-thanks {
+                clear: both !important;
+                float: none !important;
+                width: 100% !important;
+                margin-top: 6px !important;
+                padding-top: 8px !important;
+                text-align: center !important;
+            }
+            table.table th.mrp, table.table td.mrp,
+            table.table th.item_discount, table.table td.item_discount,
+            table.table th.discount, table.table td.discount,
+            table.table th.quantity, table.table td.quantity,
+            table.table th.unit_quantity, table.table td.unit_quantity {
+                text-align: center !important;
+                white-space: nowrap !important;
+            }
+            table.table th.subtotal, table.table td.subtotal {
+                text-align: right !important;
+                white-space: nowrap !important;
+            }
+            table:not(.table) td, table:not(.table) th {
+                border: none !important;
+                padding: 0 2px !important;
+                vertical-align: top !important;
+            }
+            .text-center > table {
+                width: 100% !important;
+            }
+            .pull-left {
+                float: left !important;
+            }
+            .pull-right {
+                float: right !important;
+            }
+            .text-center, .text-center h3 {
+                text-align: center !important;
+            }
+            .text-right, th.text-right, td.text-right {
+                text-align: right !important;
+            }
+            table.table th.mrp, table.table td.mrp,
+            table.table th.item_discount, table.table td.item_discount,
+            table.table th.discount, table.table td.discount,
+            table.table th.quantity, table.table td.quantity,
+            table.table th.unit_quantity, table.table td.unit_quantity {
+                text-align: center !important;
+            }
+            .text-left {
+                text-align: left !important;
+            }
+            .row:after, [class*="col-"]:after, .clearfix:after {
+                content: "" !important;
+                display: table !important;
+                clear: both !important;
+            }
+        </style>"""
         val stripped = html
             .replace(Regex("""<script\b[^>]*>[\s\S]*?</script>""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""<noscript\b[^>]*>[\s\S]*?</noscript>""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""<style\b[^>]*>[\s\S]*?</style>""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""<link\b[^>]*>""", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("""margin-top\s*:\s*-\d+px""", RegexOption.IGNORE_CASE), "margin-top:0")
+            .replace(Regex("""font-size\s*:\s*[\d.]+pt\s*!important""", RegexOption.IGNORE_CASE), "font-size:inherit")
             .replace(
                 Regex("""<meta[^>]*name\s*=\s*["']viewport["'][^>]*>""", RegexOption.IGNORE_CASE),
                 ""
             )
-        val head = Regex("""<head[^>]*>""", RegexOption.IGNORE_CASE)
-        if (head.containsMatchIn(stripped)) {
-            return stripped.replace(head, "$0\n$viewport\n$fit")
+        val closeHead = Regex("""</head>""", RegexOption.IGNORE_CASE)
+        if (closeHead.containsMatchIn(stripped)) {
+            return stripped.replace(closeHead, "$viewport\n$fit\n</head>")
         }
         return """
             <!DOCTYPE html>

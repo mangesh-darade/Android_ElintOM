@@ -1,4 +1,4 @@
-﻿package com.elintpos.wrapper
+package com.elintpos.wrapper
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
@@ -63,6 +63,25 @@ class MainActivity : ComponentActivity() {
 		private const val USER_AGENT_SUFFIX = " DesktopAndroidWebView/1366x768"
 		private const val TAG = "ElintPOS"
 		internal const val ACTION_USB_PERMISSION = "com.elintpos.wrapper.USB_PERMISSION"
+		private const val PRINT_OVERRIDE_SCRIPT = """
+			(function() {
+				if (window.__elintPrintOverride) return;
+				window.__elintPrintOverride = true;
+				var originalPrint = window.print;
+				window.print = function() {
+					if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.showNativePrintDialog === 'function') {
+						try {
+							var result = ElintPOSNative.showNativePrintDialog();
+							var response = JSON.parse(result || '{}');
+							if (response.ok) return;
+						} catch (e) {}
+					}
+					if (originalPrint && typeof originalPrint === 'function') {
+						originalPrint.call(window);
+					}
+				};
+			})();
+		"""
 	}
 	
 	private fun getBaseUrl(): String {
@@ -90,6 +109,17 @@ class MainActivity : ComponentActivity() {
             return "$scheme:$url"
         }
 
+        val basePath = try {
+            URI(baseUrl).path?.trimEnd('/') ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+        val targetUrl = if (basePath.isNotEmpty() && url.startsWith("/") && !url.startsWith(basePath)) {
+            "$basePath$url"
+        } else {
+            url
+        }
+
         val base = try {
             val current = webView.url ?: baseUrl
             val baseUri = URI(current)
@@ -99,9 +129,9 @@ class MainActivity : ComponentActivity() {
         }
 
         return try {
-            base.resolve(url).toString()
+            base.resolve(targetUrl).toString()
         } catch (_: Exception) {
-            (baseUrl.trimEnd('/') + "/" + url.trimStart('/'))
+            (baseUrl.trimEnd('/') + "/" + targetUrl.trimStart('/'))
         }
     }
 
@@ -230,6 +260,16 @@ class MainActivity : ComponentActivity() {
 			throw e
 		}
 	}
+
+	override fun onNewIntent(intent: Intent) {
+		super.onNewIntent(intent)
+		setIntent(intent)
+		intent.dataString?.let { url ->
+			if (::webView.isInitialized) {
+				webView.loadUrl(url)
+			}
+		}
+	}
 	
 	/**
 	 * Check kiosk mode preference and enable lock task mode if enabled
@@ -251,7 +291,7 @@ class MainActivity : ComponentActivity() {
 	
 	private fun loadInitialUrl() {
 		try {
-			val url = getBaseUrl()
+			val url = intent?.dataString ?: getBaseUrl()
 			Log.d(TAG, "Loading initial URL: $url")
 			if (::webView.isInitialized) {
 				webView.loadUrl(url)
@@ -429,13 +469,16 @@ class MainActivity : ComponentActivity() {
 				displayZoomControls = false
 				setSupportZoom(false)
 				mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-				
-				// Enable hardware acceleration for better performance
-				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-					setRenderPriority(WebSettings.RenderPriority.HIGH)
+				cacheMode = WebSettings.LOAD_DEFAULT
+				if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+					offscreenPreRaster = true
 				}
 
 				userAgentString = userAgentString + USER_AGENT_SUFFIX
+			}
+
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+				view.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
 			}
 
 			view.isFocusable = true
@@ -455,99 +498,9 @@ class MainActivity : ComponentActivity() {
 			override fun onPageFinished(view: WebView?, url: String?) {
 				super.onPageFinished(view, url)
                 Log.d(TAG, "Page finished loading: $url")
-				
-				// Inject JavaScript to override window.print() multiple times with delays
-				// This ensures it's in place before $(window).load() fires
-				val printOverrideScript = """
-					(function() {
-						// Save original window.print if it exists
-						var originalPrint = window.print;
-						
-						// Override window.print() to call native Android print dialog
-						window.print = function() {
-							console.log('window.print() called - intercepting for Android native print dialog');
-							
-							// Check if ElintPOSNative bridge is available
-							if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.showNativePrintDialog === 'function') {
-								try {
-									var result = ElintPOSNative.showNativePrintDialog();
-									var response = JSON.parse(result || '{}');
-									if (response.ok) {
-										console.log('Native print dialog opened successfully');
-										return; // Success - native dialog opened
-									} else {
-										console.warn('Native print dialog failed:', response.msg);
-									}
-								} catch (e) {
-									console.error('Error calling native print dialog:', e);
-								}
-							}
-							
-							// Fallback to original print if native bridge not available or failed
-							if (originalPrint && typeof originalPrint === 'function') {
-								originalPrint.call(window);
-							}
-						};
-						
-						console.log('window.print() override installed');
-					})();
-				""".trimIndent()
-				
-				// Inject immediately
-				view?.evaluateJavascript(printOverrideScript, null)
-				
-				// Inject again after a short delay to catch late-loading scripts
-				view?.postDelayed({
-					view?.evaluateJavascript(printOverrideScript, null)
-				}, 50)
-				
-				// Inject again after longer delay to catch $(window).load() calls
-				view?.postDelayed({
-					view?.evaluateJavascript(printOverrideScript, null)
-				}, 500)
-				
-				// Also inject when DOM is ready (if document.readyState is available)
-				view?.evaluateJavascript("""
-					(function() {
-						function installPrintOverride() {
-							var originalPrint = window.print;
-							window.print = function() {
-								console.log('window.print() called - intercepting for Android native print dialog');
-								if (typeof ElintPOSNative !== 'undefined' && typeof ElintPOSNative.showNativePrintDialog === 'function') {
-									try {
-										var result = ElintPOSNative.showNativePrintDialog();
-										var response = JSON.parse(result || '{}');
-										if (response.ok) {
-											console.log('Native print dialog opened successfully');
-											return;
-										}
-									} catch (e) {
-										console.error('Error calling native print dialog:', e);
-									}
-								}
-								if (originalPrint && typeof originalPrint === 'function') {
-									originalPrint.call(window);
-								}
-							};
-							console.log('window.print() override installed (DOM ready)');
-						}
-						
-						if (document.readyState === 'loading') {
-							document.addEventListener('DOMContentLoaded', installPrintOverride);
-						} else {
-							installPrintOverride();
-						}
-						
-						// Also ensure it's installed when window.load fires
-						if (typeof jQuery !== 'undefined') {
-							jQuery(window).on('load', function() {
-								installPrintOverride();
-							});
-						} else {
-							window.addEventListener('load', installPrintOverride);
-						}
-					})();
-				""".trimIndent(), null)
+				// One install is enough. Repeating it on the POS screen forces extra
+				// JavaScript work while the page is trying to paint.
+				view?.evaluateJavascript(PRINT_OVERRIDE_SCRIPT, null)
 			}
 			
 			@Suppress("DEPRECATION")
@@ -597,8 +550,7 @@ class MainActivity : ComponentActivity() {
 					}
 					if (path.contains("/pos/view/") || path.contains("/sales/view/")) {
                         Log.d("ElintPOS_WebView", "Loading pos/view page: $uri")
-						view?.loadUrl(uri.toString())
-						return true
+						return false
 					}
                 } catch (_: Exception) {
                 }
@@ -622,7 +574,9 @@ class MainActivity : ComponentActivity() {
 				}
 
 				val host = uri.host ?: return false
-				return if (host.endsWith(getBaseDomain())) {
+				val baseDomain = getBaseDomain()
+				val isSameDomain = host.endsWith(baseDomain) || host == baseDomain
+				return if (isSameDomain) {
 					val path = uri.encodedPath ?: ""
 					if (path.contains("/reports") || path.contains("/report") || path.contains("profit") || path.contains("loss")) {
 						val headers = mutableMapOf<String, String>()

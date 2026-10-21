@@ -34,6 +34,35 @@ class K8PrintRulesTest {
     }
 
     @Test
+    fun documentHeightFollowsTheBillNotAZeroViewport() {
+        assertEquals(800, K8BillLayout.documentHeight(800, 0, 1f))
+        assertEquals(400, K8BillLayout.documentHeight(800, 0, 0.5f))
+        assertEquals(900, K8BillLayout.documentHeight(100, 900, 1f))
+        assertEquals(0, K8BillLayout.documentHeight(0, 0, 1f))
+        assertEquals(10, K8BillLayout.documentHeight(10, 0, 0f))
+    }
+
+    @Test
+    fun zeroHeightIsNeverCaptured() {
+        assertFalse(K8BillLayout.readyToCapture(0, 5, 40, false))
+        assertTrue(K8BillLayout.readyToCapture(400, 3, 4, false))
+        assertFalse(K8BillLayout.readyToCapture(400, 3, 4, true))
+        assertTrue(K8BillLayout.readyToCapture(400, 3, 18, true))
+        assertTrue(K8BillLayout.readyToCapture(400, 0, 40, false))
+    }
+
+    @Test
+    fun eightyMillimetreBillFillsTheRoll() {
+        val narrow = "<style>#wrapper { max-width: 320px; margin: 0 auto; }</style>"
+        val wide = "<style>#wrapper { max-width: 800px; }</style>"
+        assertEquals(576, K8BillLayout.layoutWidthForPaper(narrow, 576))
+        assertEquals(576, K8BillLayout.layoutWidthForPaper(wide, 576))
+        assertEquals(384, K8BillLayout.layoutWidthForPaper(narrow, 384))
+        assertEquals(34, K8BillLayout.bodyPx(12, 576))
+        assertEquals(29, K8BillLayout.bodyPx(10, 576))
+    }
+
+    @Test
     fun heightMustStayPutBeforeCapture() {
         assertEquals(0, K8BillLayout.nextStableCount(-1, 0, 0))
         assertEquals(0, K8BillLayout.nextStableCount(100, 400, 2))

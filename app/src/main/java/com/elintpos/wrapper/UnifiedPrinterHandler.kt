@@ -67,16 +67,16 @@ class UnifiedPrinterHandler(private val context: Context) {
             Log.d(TAG, "Printing with profile: ${profile.name}, type: ${profile.type}, paper size: $paperSizeMm (${profile.paperWidth} dots)")
 
             val prepared = com.elintpos.wrapper.printer.ReceiptText.prepare(text)
+            if (looksLikeHtml(prepared) && canRasterHtml(profile.type)) {
+                Log.d(TAG, "HTML bill, printing as raster bitmap")
+                return com.elintpos.wrapper.printer.HtmlInvoicePrinter(context)
+                    .printHtmlInvoice(prepared, profile.type)
+            }
             if (isInvoice(prepared) &&
                 profile.type != PrinterConfigManager.TYPE_TECMI_K8 &&
                 !looksLikeHtml(prepared)
             ) {
                 return printInvoiceColumns(profile, prepared)
-            }
-            if (profile.type == PrinterConfigManager.TYPE_TECMI_K8 && looksLikeHtml(prepared)) {
-                Log.d(TAG, "K8 HTML bill, printing as raster bitmap")
-                return com.elintpos.wrapper.printer.HtmlInvoicePrinter(context)
-                    .printHtmlInvoice(prepared, profile.type)
             }
             val receipt = if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
                 prepared
@@ -360,7 +360,8 @@ class UnifiedPrinterHandler(private val context: Context) {
                             lineSpacing = profile.lineSpacing,
                             widthMultiplier = profile.widthMultiplier,
                             heightMultiplier = profile.heightMultiplier,
-                            pageWidthDots = profile.paperWidth
+                            pageWidthDots = profile.paperWidth,
+                            cutMode = cutModeOf(profile)
                         )
                         PrintResult(true, "Printed via Bluetooth")
                     } catch (e: IOException) {
@@ -381,7 +382,8 @@ class UnifiedPrinterHandler(private val context: Context) {
                             lineSpacing = profile.lineSpacing,
                             widthMultiplier = profile.widthMultiplier,
                             heightMultiplier = profile.heightMultiplier,
-                            pageWidthDots = profile.paperWidth
+                            pageWidthDots = profile.paperWidth,
+                            cutMode = cutModeOf(profile)
                         )
                         PrintResult(true, "Printed via USB")
                     } catch (e: IOException) {
@@ -402,7 +404,8 @@ class UnifiedPrinterHandler(private val context: Context) {
                             lineSpacing = profile.lineSpacing,
                             widthMultiplier = profile.widthMultiplier,
                             heightMultiplier = profile.heightMultiplier,
-                            pageWidthDots = profile.paperWidth
+                            pageWidthDots = profile.paperWidth,
+                            cutMode = cutModeOf(profile)
                         )
                         PrintResult(true, "Printed via LAN")
                     } catch (e: IOException) {
@@ -448,7 +451,7 @@ class UnifiedPrinterHandler(private val context: Context) {
                 }
 
                 PrinterConfigManager.TYPE_TECMI_K8 -> {
-                    val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+                    val cutMode = cutModeOf(profile)
                     val printed = tecMiK8Printer.printText(
                         text = text,
                         lineSpacing = profile.lineSpacing,
@@ -480,7 +483,7 @@ class UnifiedPrinterHandler(private val context: Context) {
         val profile = getPrinterProfile(preferType) ?: return PrintResult(false, "No printer configured")
 
         if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
-            val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+            val cutMode = cutModeOf(profile)
             val printed = tecMiK8Printer.printBarcode(
                 data = data,
                 barcodeType = barcodeType,
@@ -519,7 +522,7 @@ class UnifiedPrinterHandler(private val context: Context) {
         val profile = getPrinterProfile(preferType) ?: return PrintResult(false, "No printer configured")
 
         if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
-            val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+            val cutMode = cutModeOf(profile)
             val printed = tecMiK8Printer.printQRCode(data, size, cutMode)
             return PrintResult(printed.success, printed.message)
         }
@@ -551,6 +554,13 @@ class UnifiedPrinterHandler(private val context: Context) {
         }
         val opened = tecMiK8Printer.openCashDrawer()
         return PrintResult(opened.success, opened.message)
+    }
+
+    private fun canRasterHtml(type: String): Boolean {
+        return type == PrinterConfigManager.TYPE_TECMI_K8 ||
+            type == PrinterConfigManager.TYPE_USB ||
+            type == PrinterConfigManager.TYPE_BLUETOOTH ||
+            type == PrinterConfigManager.TYPE_LAN
     }
 
     private fun looksLikeHtml(text: String): Boolean {
@@ -615,6 +625,12 @@ class UnifiedPrinterHandler(private val context: Context) {
         }
     }
     
+    private fun cutModeOf(profile: PrinterConfigManager.PrinterConfig): String {
+        val saved = profile.advancedSettings["cutMode"]?.toString()?.trim().orEmpty()
+        if (saved.isNotEmpty()) return saved
+        return com.elintpos.wrapper.utils.PreferencesManager(context).printCutMode
+    }
+
     /**
      * Close all printer connections
      */

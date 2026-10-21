@@ -52,7 +52,8 @@ class UsbEscPosPrinter(private val context: Context) {
 		widthMultiplier: Int = 0,
 		heightMultiplier: Int = 0,
 		pageWidthDots: Int? = null,
-		linesPerPage: Int? = null
+		linesPerPage: Int? = null,
+		cutMode: String = "partial_cut"
 	) {
 		val conn = connection ?: throw IOException("Not connected")
 		val out = endpointOut ?: throw IOException("No OUT endpoint")
@@ -97,7 +98,7 @@ class UsbEscPosPrinter(private val context: Context) {
 			lineCounter++
 			if (linesPerPage != null && linesPerPage > 0 && lineCounter >= linesPerPage) {
 				write(byteArrayOf(0x1B, 0x64, 0x02))
-				write(byteArrayOf(0x1D, 0x56, 0x42, 0x03))
+				cutBytes(cutMode)?.let { write(it) }
 				lineCounter = 0
 				write(byteArrayOf(0x1B, 0x40))
 				write(byteArrayOf(0x1B, 0x33, lineSpacing.toByte()))
@@ -106,7 +107,7 @@ class UsbEscPosPrinter(private val context: Context) {
 			}
 		}
 		write(byteArrayOf(0x1B, 0x64, 0x02))
-		write(byteArrayOf(0x1D, 0x56, 0x42, 0x03))
+		cutBytes(cutMode)?.let { write(it) }
 	}
 
 	/**
@@ -181,5 +182,11 @@ class UsbEscPosPrinter(private val context: Context) {
 		connection = null
 		endpointOut = null
 		usbInterface = null
+	}
+
+	private fun cutBytes(cutMode: String): ByteArray? = when (cutMode.lowercase()) {
+		"no_cut", "none", "continue" -> null
+		"full_cut", "full" -> byteArrayOf(0x1D, 0x56, 0x00)
+		else -> byteArrayOf(0x1D, 0x56, 0x42, 0x03)
 	}
 }

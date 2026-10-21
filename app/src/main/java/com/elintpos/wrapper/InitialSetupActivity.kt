@@ -259,9 +259,18 @@ class InitialSetupActivity : ComponentActivity() {
         val modelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, printerModels)
         modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         printerModelSpinner.adapter = modelAdapter
+        printerModelSpinner.setSelection(printerModels.indexOf(selectedModel).coerceAtLeast(0), false)
         printerModelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            private var initialSelection = true
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 selectedModel = printerModels[position]
+                if (initialSelection) {
+                    initialSelection = false
+                    return
+                }
+                selectedPrinter = null
+                (printerRecyclerView.adapter as? PrinterAdapter)?.selectedPosition = -1
+                discoverPrinters()
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }

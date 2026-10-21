@@ -46,9 +46,7 @@ import kotlinx.coroutines.Dispatchers
 import android.app.AlertDialog
 import android.os.Looper
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -148,6 +146,17 @@ class JavaScriptBridge(
             return "$scheme:$url"
         }
         
+        val basePath = try {
+            java.net.URI(baseUrl).path?.trimEnd('/') ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+        val targetUrl = if (basePath.isNotEmpty() && url.startsWith("/") && !url.startsWith(basePath)) {
+            "$basePath$url"
+        } else {
+            url
+        }
+
         // Resolve against current page or baseUrl
         val base = try {
             val current = webView.url ?: baseUrl
@@ -156,9 +165,9 @@ class JavaScriptBridge(
         } catch (_: Exception) { java.net.URI(baseUrl) }
         
         return try {
-            base.resolve(url).toString()
+            base.resolve(targetUrl).toString()
         } catch (_: Exception) {
-            (baseUrl.trimEnd('/') + "/" + url.trimStart('/'))
+            (baseUrl.trimEnd('/') + "/" + targetUrl.trimStart('/'))
         }
     }
     
@@ -629,6 +638,10 @@ class JavaScriptBridge(
     @JavascriptInterface
     fun showNativePrintDialog(): String {
         return try {
+            if (!claimInvoicePrint()) {
+                AppLogger.d("Debounced duplicate showNativePrintDialog within window", TAG)
+                return createSuccessResponse("Print already in progress")
+            }
             val showPrintDialog = preferencesManager.showPrintDialog
             
             AppLogger.d("showNativePrintDialog called - showPrintDialog: $showPrintDialog", TAG)
@@ -672,56 +685,55 @@ class JavaScriptBridge(
                 createSuccessResponse("Print dialog opened")
             } else {
                 // Checkbox is UNCHECKED → Direct print using configured printer SDK (no dialog)
-                AppLogger.d("Direct print (no dialog) - extracting page content", TAG)
+                AppLogger.d("Direct print (no dialog) - extracting HTML content", TAG)
                 
-                // Extract page content and print directly
+                // Extract clean HTML content and print directly as raster bitmap
                 activity.runOnUiThread {
                     webView.evaluateJavascript("""
                         (function() {
                             try {
-                                // Get page content - prefer text content
-                                let content = '';
-                                // Try to get main content area first
-                                const mainContent = document.querySelector('main, .content, .main-content, #content, #main, article');
-                                if (mainContent) {
-                                    content = mainContent.innerText || mainContent.textContent || '';
-                                } else {
-                                    content = document.body.innerText || document.body.textContent || '';
+                                if (typeof window.elintposInvoiceHtml === 'function') {
+                                    var customHtml = window.elintposInvoiceHtml();
+                                    if (customHtml && customHtml.trim().length > 0) {
+                                        return JSON.stringify(customHtml);
+                                    }
                                 }
-                                // Add page title
-                                const title = document.title || 'Web Page';
-                                content = title + '\\n' + '='.repeat(title.length) + '\\n\\n' + content;
-                                // Return as JSON string to handle special characters
-                                return JSON.stringify(content);
+                                var receipt = document.getElementById('receiptData') || document.getElementById('receipt-data') || document.getElementById('wrapper') || document.body;
+                                var clone = receipt.cloneNode(true);
+                                var noPrints = clone.querySelectorAll('.no-print, .alert, button, .btn, #buttons');
+                                for (var i = 0; i < noPrints.length; i++) {
+                                    noPrints[i].parentNode.removeChild(noPrints[i]);
+                                }
+                                var headContent = document.head ? document.head.innerHTML : '';
+                                var fullHtml = '<!DOCTYPE html><html><head>' + headContent + '</head><body>' + clone.outerHTML + '</body></html>';
+                                return JSON.stringify(fullHtml);
                             } catch (e) {
-                                return JSON.stringify('Error extracting content: ' + e.message);
+                                return JSON.stringify('');
                             }
                         })();
                     """.trimIndent()) { jsonContent ->
                         try {
-                            if (jsonContent != null && jsonContent != "null" && jsonContent.isNotBlank()) {
-                                // Parse JSON string - evaluateJavascript returns a JSON-encoded string
-                                val content = try {
-                                    // The result is already a JSON string, so parse it
-                                    JSONObject("{\"content\":$jsonContent}").getString("content")
-                                } catch (e: Exception) {
-                                    // Fallback: try to unquote the string directly
+                            val html = if (jsonContent != null && jsonContent != "null" && jsonContent.isNotBlank()) {
+                                try {
+                                    JSONObject("{\"html\":$jsonContent}").getString("html")
+                                } catch (_: Exception) {
                                     jsonContent.removeSurrounding("\"").replace("\\n", "\n").replace("\\\"", "\"").replace("\\r", "\r")
                                 }
-                                
-                                if (content.isNotBlank()) {
-                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                                        val result = unifiedPrinterHandler.print(content, "auto")
-                                        activity.runOnUiThread {
-                                            if (result.success) {
-                                                Toast.makeText(activity, "Print sent successfully", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                Toast.makeText(activity, "Print failed: ${result.message}", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                    }
+                            } else ""
+                            
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                val result = if (html.isNotBlank() && (html.contains("<table", ignoreCase = true) || html.contains("<div", ignoreCase = true))) {
+                                    unifiedPrinterHandler.printHtmlInvoice(html, "auto")
                                 } else {
-                                    AppLogger.w("Empty content extracted from page", TAG)
+                                    val plain = webView.title ?: "Receipt"
+                                    unifiedPrinterHandler.print(plain, "auto")
+                                }
+                                activity.runOnUiThread {
+                                    if (result.success) {
+                                        Toast.makeText(activity, "Print sent successfully", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(activity, "Print failed: ${result.message}", Toast.LENGTH_LONG).show()
+                                    }
                                 }
                             }
                         } catch (e: Exception) {
@@ -863,7 +875,8 @@ class JavaScriptBridge(
             (trimmed.contains("<html", ignoreCase = true) && trimmed.contains("</html>", ignoreCase = true)) ||
             trimmed.contains("<body", ignoreCase = true) ||
             trimmed.contains("<table", ignoreCase = true) ||
-            trimmed.contains("<style", ignoreCase = true)
+            trimmed.contains("<style", ignoreCase = true) ||
+            trimmed.contains("<div", ignoreCase = true)
     }
 
     /**
@@ -942,7 +955,7 @@ class JavaScriptBridge(
     private fun claimInvoicePrint(): Boolean {
         val now = android.os.SystemClock.elapsedRealtime()
         synchronized(this) {
-            if (now - lastInvoicePrintMs < 8000) return false
+            if (now - lastInvoicePrintMs < 6000) return false
             lastInvoicePrintMs = now
             return true
         }
@@ -955,7 +968,24 @@ class JavaScriptBridge(
         activity.runOnUiThread {
             try {
                 webView.evaluateJavascript(
-                    "(function(){try{return (window.elintposInvoiceHtml&&elintposInvoiceHtml())||'';}catch(e){return '';}})()"
+                    """
+                    (function(){
+                        try {
+                            if (window.elintposInvoiceHtml && typeof window.elintposInvoiceHtml === 'function') {
+                                var h = window.elintposInvoiceHtml();
+                                if (h && h.trim().length > 0) return h;
+                            }
+                            var el = document.getElementById('receiptData') || document.getElementById('receipt-data') || document.getElementById('wrapper') || document.body;
+                            var clone = el.cloneNode(true);
+                            var noPrints = clone.querySelectorAll('.no-print, .alert, .btn, #buttons');
+                            for (var i = 0; i < noPrints.length; i++) noPrints[i].parentNode.removeChild(noPrints[i]);
+                            var head = document.head ? document.head.innerHTML : '';
+                            return '<!DOCTYPE html><html><head>' + head + '</head><body><div id="wrapper">' + clone.innerHTML + '</div></body></html>';
+                        } catch(e) {
+                            return '';
+                        }
+                    })()
+                    """.trimIndent()
                 ) { value ->
                     raw.set(value ?: "")
                     latch.countDown()
@@ -985,7 +1015,11 @@ class JavaScriptBridge(
             .setPositiveButton("Retry") { _, _ ->
                 // Retry print
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                    val result = unifiedPrinterHandler.print(textToPrint, printerType)
+                    val result = if (looksLikeHtml(textToPrint)) {
+                        unifiedPrinterHandler.printHtmlInvoice(textToPrint, printerType)
+                    } else {
+                        unifiedPrinterHandler.print(textToPrint, printerType)
+                    }
                     activity.runOnUiThread {
                         if (result.success) {
                             Toast.makeText(activity, "Print successful!", Toast.LENGTH_SHORT).show()
@@ -2198,35 +2232,37 @@ class JavaScriptBridge(
             if (htmlContent.isBlank()) {
                 return createErrorResponse("HTML content is empty")
             }
-            
-            if (Looper.myLooper() == Looper.getMainLooper()) {
-                return createErrorResponse("Print must run off the UI thread")
+
+            if (!claimInvoicePrint()) {
+                AppLogger.d("Debounced duplicate printHtmlInvoice within window", TAG)
+                return createSuccessResponse("Invoice print already in progress")
             }
-            val executor = Executors.newSingleThreadExecutor()
-            val result = try {
-                val future = executor.submit<UnifiedPrinterHandler.PrintResult> {
+
+            // Must return before opening the bill WebView. Waiting here holds the
+            // page's JavaScript bridge, and the bill render then times out.
+            Thread {
+                val printed = try {
                     unifiedPrinterHandler.printHtmlInvoice(htmlContent, preferType)
+                } catch (e: Exception) {
+                    AppLogger.e("Error printing HTML invoice", e, TAG)
+                    UnifiedPrinterHandler.PrintResult(false, e.message ?: "Print error")
                 }
-                future.get(45, TimeUnit.SECONDS)
-            } catch (e: TimeoutException) {
-                createErrorResponse("Print timed out")
-            } catch (e: Exception) {
-                val cause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
-                AppLogger.e("Error printing HTML invoice", cause, TAG)
-                createErrorResponse(cause.message ?: "Print error")
-            } finally {
-                executor.shutdownNow()
-            }
-            if (result is String) return result
-            val printed = result as UnifiedPrinterHandler.PrintResult
-            activity.runOnUiThread {
-                if (printed.success) {
-                    Toast.makeText(activity, "HTML invoice printed successfully", Toast.LENGTH_SHORT).show()
-                } else {
-                    showPrintFailedDialog(printed.message, htmlContent, preferType)
+                activity.runOnUiThread {
+                    if (printed.success) {
+                        Toast.makeText(activity, "HTML invoice printed successfully", Toast.LENGTH_SHORT).show()
+                    } else {
+                        showPrintFailedDialog(printed.message, htmlContent, preferType)
+                    }
+                    try {
+                        webView.evaluateJavascript(
+                            "(function(){ if (window.__elintAfterInvoicePrint) window.__elintAfterInvoicePrint(); })();",
+                            null
+                        )
+                    } catch (_: Exception) {
+                    }
                 }
-            }
-            if (printed.success) createSuccessResponse(printed.message) else createErrorResponse(printed.message)
+            }.start()
+            createSuccessResponse("Print started")
         } catch (e: Exception) {
             AppLogger.e("Error in printHtmlInvoice", e, TAG)
             createErrorResponse(e.message ?: "Unknown error")

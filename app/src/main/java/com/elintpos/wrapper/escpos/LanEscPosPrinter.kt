@@ -34,7 +34,8 @@ class LanEscPosPrinter(private val context: Context) {
 		widthMultiplier: Int = 0,
 		heightMultiplier: Int = 0,
 		pageWidthDots: Int? = null,
-		linesPerPage: Int? = null
+		linesPerPage: Int? = null,
+		cutMode: String = "partial_cut"
 	) {
 		val os = output ?: throw IOException("Not connected")
 
@@ -79,7 +80,7 @@ class LanEscPosPrinter(private val context: Context) {
 			if (linesPerPage != null && linesPerPage > 0 && lineCounter >= linesPerPage) {
 				// Cut between pages
 				os.write(byteArrayOf(0x1B, 0x64, 0x02))
-				os.write(byteArrayOf(0x1D, 0x56, 0x42, 0x03))
+				writeCut(os, cutMode)
 				lineCounter = 0
 				// Re-apply settings post cut (some printers reset scale)
 				os.write(byteArrayOf(0x1B, 0x40))
@@ -90,7 +91,7 @@ class LanEscPosPrinter(private val context: Context) {
 		}
 		// Final feed and cut
 		os.write(byteArrayOf(0x1B, 0x64, 0x02))
-		os.write(byteArrayOf(0x1D, 0x56, 0x42, 0x03))
+		writeCut(os, cutMode)
 		os.flush()
 	}
 
@@ -149,7 +150,7 @@ class LanEscPosPrinter(private val context: Context) {
 			for (x in 0 until width) {
 				val pixel = scaledBitmap.getPixel(x, y)
 				val gray = (android.graphics.Color.red(pixel) + android.graphics.Color.green(pixel) + android.graphics.Color.blue(pixel)) / 3
-				if (gray < 128) { // Black pixel
+				if (gray < 160) { // Black pixel
 					val byteIndex = y * widthBytes + x / 8
 					val bitIndex = 7 - (x % 8)
 					imageData[byteIndex] = (imageData[byteIndex].toInt() or (1 shl bitIndex)).toByte()
@@ -184,5 +185,14 @@ class LanEscPosPrinter(private val context: Context) {
 		output = null
 		socket = null
 		isConnected = false
+	}
+
+	private fun writeCut(os: OutputStream, cutMode: String) {
+		val command = when (cutMode.lowercase()) {
+			"no_cut", "none", "continue" -> return
+			"full_cut", "full" -> byteArrayOf(0x1D, 0x56, 0x00)
+			else -> byteArrayOf(0x1D, 0x56, 0x42, 0x03)
+		}
+		os.write(command)
 	}
 }

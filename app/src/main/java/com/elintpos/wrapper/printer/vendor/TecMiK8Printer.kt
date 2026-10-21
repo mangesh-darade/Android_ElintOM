@@ -9,6 +9,7 @@ import android.hardware.usb.UsbManager
 import android.os.SystemClock
 import android.util.Log
 import com.elintpos.wrapper.printer.CashSale
+import com.elintpos.wrapper.utils.PreferencesManager
 import com.elintpos.wrapper.printer.K8BillBitmap
 import com.elintpos.wrapper.printer.K8SerialPorts
 import com.elintpos.wrapper.printer.ReceiptLayout
@@ -469,11 +470,11 @@ class TecMiK8Printer(private val context: Context) {
     }
 
     private fun finishJob(printer: PrinterAPI, cutMode: String) {
-        printer.printFeed()
+        val feed = PreferencesManager(context).printBottomGapDots
         when (cutMode.lowercase()) {
-            "no_cut", "none" -> Unit
-            "partial_cut", "partial" -> printer.halfCut()
-            else -> printer.cutPaper(66, 0)
+            "partial_cut", "partial" -> printer.cutPaper(feed, 1)
+            "no_cut", "none", "continue" -> if (feed > 0) printer.printFeed()
+            else -> printer.cutPaper(feed, 0)
         }
     }
 

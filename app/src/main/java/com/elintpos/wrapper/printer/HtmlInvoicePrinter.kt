@@ -50,16 +50,12 @@ class HtmlInvoicePrinter(private val context: Context) {
             
             Log.d(TAG, "Printing HTML invoice with profile: ${profile.name}, paper width: ${profile.paperWidth} dots")
 
-            val widePaper = profile.paperWidth >= PrinterConfigManager.PAPER_80MM
             val canDrawView = profile.type == PrinterConfigManager.TYPE_TECMI_K8 ||
                 profile.type == PrinterConfigManager.TYPE_USB ||
                 profile.type == PrinterConfigManager.TYPE_BLUETOOTH ||
                 profile.type == PrinterConfigManager.TYPE_LAN
-            if (widePaper && canDrawView) {
+            if (canDrawView) {
                 return printScreenOnPaper(htmlContent, profile, preferType)
-            }
-            if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
-                return printK8BillBitmap(htmlContent, profile)
             }
             
             // Step 1: Convert HTML to plain text
@@ -138,7 +134,7 @@ class HtmlInvoicePrinter(private val context: Context) {
         preferType: String?
     ): UnifiedPrinterHandler.PrintResult {
         val paper = profile.paperWidth.coerceAtLeast(PrinterConfigManager.PAPER_58MM)
-        val layoutWidth = if (paper >= PrinterConfigManager.PAPER_80MM) 800 else paper
+        val layoutWidth = K8BillLayout.layoutWidthForPaper(htmlContent, paper)
         val rendered = try {
             K8BillBitmap.renderHtml(context, htmlContent, layoutWidth)
         } catch (e: Exception) {
@@ -149,7 +145,8 @@ class HtmlInvoicePrinter(private val context: Context) {
         return try {
             if (profile.type == PrinterConfigManager.TYPE_TECMI_K8) {
                 val printer = TecMiK8Printer(context)
-                val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+                val cutMode = profile.advancedSettings["cutMode"]?.toString()?.takeIf { it.isNotBlank() }
+                    ?: com.elintpos.wrapper.utils.PreferencesManager(context).printCutMode
                 val printed = printer.printBitmap(bitmap, cutMode)
                 UnifiedPrinterHandler.PrintResult(printed.success, printed.message)
             } else {
@@ -192,7 +189,8 @@ class HtmlInvoicePrinter(private val context: Context) {
             )
         }
         return try {
-            val cutMode = profile.advancedSettings["cutMode"]?.toString() ?: "full_cut"
+            val cutMode = profile.advancedSettings["cutMode"]?.toString()?.takeIf { it.isNotBlank() }
+                ?: com.elintpos.wrapper.utils.PreferencesManager(context).printCutMode
             val printed = printer.printBitmap(bitmap, cutMode)
             if (!printed.success) {
                 saveErrorLog(

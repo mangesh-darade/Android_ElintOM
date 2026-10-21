@@ -55,7 +55,7 @@ class BootReceiver : BroadcastReceiver() {
 			// Check user preference: only auto-start if enabled
 			// This allows users to disable auto-start if needed
 			val prefs: SharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-			val enabled = prefs.getBoolean("auto_start_enabled", true) // Default: enabled
+			val enabled = prefs.getBoolean("auto_start_enabled", false)
 			if (!enabled) return // Exit if auto-start is disabled
 
 			// Start foreground service to reliably bring app to front on POS devices

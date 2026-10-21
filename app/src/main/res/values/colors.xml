@@ -9,4 +9,13 @@
     <color name="white">#FFFFFFFF</color>
     <!-- Launcher icon background color used by adaptive icon -->
     <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="setup_ink">#10261C</color>
+    <color name="setup_ink_soft">#1C3D2E</color>
+    <color name="setup_surface">#F4F6F5</color>
+    <color name="setup_card">#FFFFFF</color>
+    <color name="setup_line">#E3E8E5</color>
+    <color name="setup_text">#17211C</color>
+    <color name="setup_muted">#5C6B63</color>
+    <color name="setup_accent">#1F7A4D</color>
+    <color name="setup_accent_dark">#145C38</color>
 </resources>

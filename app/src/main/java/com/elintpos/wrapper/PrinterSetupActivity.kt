@@ -23,6 +23,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.elintpos.wrapper.escpos.BluetoothEscPosPrinter
 import com.elintpos.wrapper.escpos.UsbEscPosPrinter
 import com.elintpos.wrapper.printer.PrinterConfigManager
+import com.elintpos.wrapper.utils.PreferencesManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -57,12 +58,20 @@ class PrinterSetupActivity : ComponentActivity() {
     private lateinit var connectionTypeSpinner: Spinner
     private lateinit var continueButton: Button
     private lateinit var skipButton: Button
+    private lateinit var testPrintButton: Button
     private lateinit var refreshButton: Button
     private lateinit var statusText: TextView
     // Advanced Options Checkboxes
     // These checkboxes control app-wide behavior preferences
     private lateinit var enabledPrinterDialogCheckBox: CheckBox
     private lateinit var kioskAutoBootCheckBox: CheckBox
+    private lateinit var topGapSeek: SeekBar
+    private lateinit var bottomGapSeek: SeekBar
+    private lateinit var topGapValue: TextView
+    private lateinit var bottomGapValue: TextView
+    private lateinit var cutModeSpinner: Spinner
+    private var selectedCutMode: String = "full_cut"
+    private val cutModeLabels = listOf("Full cut", "Partial cut", "Continue")
 
     // Printer data
     private val availablePrinters = mutableListOf<PrinterInfo>()
@@ -137,13 +146,20 @@ class PrinterSetupActivity : ComponentActivity() {
         connectionTypeSpinner = findViewById(R.id.connectionTypeSpinner)
         continueButton = findViewById(R.id.continueButton)
         skipButton = findViewById(R.id.skipButton)
+        testPrintButton = findViewById(R.id.testPrintButton)
         refreshButton = findViewById(R.id.refreshButton)
         statusText = findViewById(R.id.statusText)
         enabledPrinterDialogCheckBox = findViewById(R.id.enabledPrinterDialogCheckBox)
         kioskAutoBootCheckBox = findViewById(R.id.kioskAutoBootCheckBox)
+        topGapSeek = findViewById(R.id.topGapSeek)
+        bottomGapSeek = findViewById(R.id.bottomGapSeek)
+        topGapValue = findViewById(R.id.topGapValue)
+        bottomGapValue = findViewById(R.id.bottomGapValue)
+        cutModeSpinner = findViewById(R.id.cutModeSpinner)
         
         // Load saved preferences
         loadPreferences()
+        setupGapControls()
         
         // Setup checkbox listeners for immediate actions
         setupCheckboxListeners()
@@ -180,10 +196,38 @@ class PrinterSetupActivity : ComponentActivity() {
         // 
         // Also check kiosk_enabled preference for lock task mode
         // If either is enabled, show checkbox as checked
-        val autoStartEnabled = prefs.getBoolean("auto_start_enabled", true)
+        val autoStartEnabled = prefs.getBoolean("auto_start_enabled", false)
         val kioskEnabled = prefs.getBoolean("kiosk_enabled", false)
         // Checkbox is checked if either auto-start or kiosk mode is enabled
         kioskAutoBootCheckBox.isChecked = autoStartEnabled || kioskEnabled
+        val stored = PreferencesManager(this)
+        topGapSeek.progress = stored.printTopGapDots
+        bottomGapSeek.progress = stored.printBottomGapDots
+        topGapValue.text = formatGap(stored.printTopGapDots)
+        bottomGapValue.text = formatGap(stored.printBottomGapDots)
+        selectedCutMode = stored.printCutMode
+    }
+
+    private fun setupGapControls() {
+        val listener = object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (seekBar?.id == R.id.topGapSeek) topGapValue.text = formatGap(progress)
+                else bottomGapValue.text = formatGap(progress)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                val stored = PreferencesManager(this@PrinterSetupActivity)
+                stored.printTopGapDots = topGapSeek.progress
+                stored.printBottomGapDots = bottomGapSeek.progress
+            }
+        }
+        topGapSeek.setOnSeekBarChangeListener(listener)
+        bottomGapSeek.setOnSeekBarChangeListener(listener)
+    }
+
+    private fun formatGap(dots: Int): String {
+        val mm = dots / 8.0
+        return "$dots dots · ${"%.1f".format(mm)} mm"
     }
     
     /**
@@ -383,9 +427,16 @@ class PrinterSetupActivity : ComponentActivity() {
         //   - Checked (true) = autoStartEnabled = true, kioskEnabled = true → App auto-starts on boot AND kiosk mode enabled
         //   - Unchecked (false) = autoStartEnabled = false, kioskEnabled = false → Manual start required AND kiosk mode disabled
         val autoStartEnabled = kioskAutoBootCheckBox.isChecked
+        val stored = PreferencesManager(this)
+        stored.printTopGapDots = topGapSeek.progress
+        stored.printBottomGapDots = bottomGapSeek.progress
+        stored.printCutMode = selectedCutMode
         prefs.edit()
             .putBoolean("auto_start_enabled", autoStartEnabled)
             .putBoolean("kiosk_enabled", autoStartEnabled)
+            .putInt("print_top_gap_dots", stored.printTopGapDots)
+            .putInt("print_bottom_gap_dots", stored.printBottomGapDots)
+            .putString("print_cut_mode", selectedCutMode)
             .commit()
         
         // Log for debugging
@@ -400,10 +451,19 @@ class PrinterSetupActivity : ComponentActivity() {
         val modelAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, printerModels)
         modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         printerModelSpinner.adapter = modelAdapter
+        printerModelSpinner.setSelection(printerModels.indexOf(selectedModel).coerceAtLeast(0), false)
         printerModelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            private var initialSelection = true
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 selectedModel = printerModels[position]
                 updateStatus("Selected model: $selectedModel")
+                if (initialSelection) {
+                    initialSelection = false
+                    return
+                }
+                selectedPrinter = null
+                (printerRecyclerView.adapter as? PrinterAdapter)?.selectedPosition = -1
+                discoverPrinters()
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -422,6 +482,27 @@ class PrinterSetupActivity : ComponentActivity() {
                     else -> "bluetooth"
                 }
                 discoverPrinters()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        val cutAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, cutModeLabels)
+        cutAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        cutModeSpinner.adapter = cutAdapter
+        val savedCutIndex = when (selectedCutMode) {
+            "partial_cut" -> 1
+            "no_cut", "continue" -> 2
+            else -> 0
+        }
+        cutModeSpinner.setSelection(savedCutIndex, false)
+        cutModeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                selectedCutMode = when (position) {
+                    1 -> "partial_cut"
+                    2 -> "no_cut"
+                    else -> "full_cut"
+                }
+                PreferencesManager(this@PrinterSetupActivity).printCutMode = selectedCutMode
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -446,26 +527,26 @@ class PrinterSetupActivity : ComponentActivity() {
     }
 
     private fun setupButtons() {
-        // STEP 2: Test Print before Save (MANDATORY)
         continueButton.setOnClickListener {
-            if (selectedPrinter != null) {
-                // First test print, then save
-                testPrintAndSave()
-            } else {
+            if (selectedPrinter == null) {
                 Toast.makeText(this, "Please select a printer", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+            savePrinterConfiguration()
+            savePreferences()
+            updateStatus("Printer saved")
+            navigateToMainActivity()
         }
 
-        // STEP 1: Skip button should be hidden or disabled for first-time setup
-        // Only allow skip if printer is already configured (for reconfiguration scenarios)
+        testPrintButton.setOnClickListener {
+            printTestSlip()
+        }
+
         skipButton.setOnClickListener {
             if (isPrinterConfigured()) {
-                // Already configured, allow skip (for reconfiguration scenarios)
-                // Save preferences even when skipping
                 savePreferences()
                 navigateToMainActivity()
             } else {
-                // First time setup - don't allow skip
                 Toast.makeText(this, "Please configure a printer to continue", Toast.LENGTH_LONG).show()
             }
         }
@@ -474,118 +555,97 @@ class PrinterSetupActivity : ComponentActivity() {
             discoverPrinters()
         }
     }
-    
-    /**
-     * STEP 2: Test Print before saving configuration
-     * This ensures printer works before proceeding
-     */
-    private fun testPrintAndSave() {
-        selectedPrinter?.let { printer ->
-            // Show progress
-            updateStatus("Testing printer...")
-            continueButton.isEnabled = false
-            
-            // Create temporary config for testing
-            val connectionParams = when (printer.type) {
-                "bluetooth" -> mapOf("mac" to printer.address)
-                "usb" -> mapOf(
-                    "deviceName" to printer.name,
-                    "address" to printer.address
-                )
-                "lan" -> {
-                    val parts = printer.address.split(":")
-                    mapOf(
-                        "ip" to (parts.getOrNull(0) ?: "192.168.1.100"),
-                        "port" to (parts.getOrNull(1) ?: "9100")
-                    )
-                }
-                else -> emptyMap()
-            }
-            
-            val paperWidth = when {
-                selectedModel.contains("58") -> PrinterConfigManager.PAPER_58MM
-                selectedModel.contains("90") -> PrinterConfigManager.PAPER_112MM
-                else -> PrinterConfigManager.PAPER_80MM
-            }
-            
-            val testConfig = PrinterConfigManager.PrinterConfig(
-                type = printer.type,
-                name = "${printer.name} (${selectedModel})",
-                enabled = true,
-                paperWidth = paperWidth,
-                connectionParams = connectionParams,
-                isDefault = true
+
+    private fun printTestSlip() {
+        val printer = selectedPrinter
+        if (printer == null) {
+            Toast.makeText(this, "Please select a printer", Toast.LENGTH_SHORT).show()
+            return
+        }
+        updateStatus("Printing test slip...")
+        testPrintButton.isEnabled = false
+
+        val connectionParams = when (printer.type) {
+            "bluetooth" -> mapOf("mac" to printer.address)
+            "usb" -> mapOf(
+                "deviceName" to printer.name,
+                "address" to printer.address
             )
-            
-            // Test print in background
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val unifiedPrinterHandler = com.elintpos.wrapper.UnifiedPrinterHandler(this@PrinterSetupActivity)
-                    
-                    // Create test print content
-                    val testText = """
-                        ================================
-                        PRINTER TEST
-                        ================================
-                        
-                        Printer: ${printer.name}
-                        Type: ${printer.type.uppercase()}
-                        Model: $selectedModel
-                        Paper: ${paperWidth} dots
-                        
-                        If you can read this,
-                        your printer is working correctly!
-                        
-                        Time: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}
-                        
-                        ================================
-                        END OF TEST
-                        ================================
-                    """.trimIndent()
-                    
-                    // Temporarily save config for testing
-                    printerConfigManager.saveProfile(testConfig)
-                    
-                    // Test print
-                    val result = unifiedPrinterHandler.print(testText, printer.type)
-                    
-                    // Return to main thread for UI update
-                    withContext(Dispatchers.Main) {
-                        continueButton.isEnabled = true
-                        
-                        if (result.success) {
-                            // Test successful - save and continue
-                            updateStatus("Test print successful! Saving configuration...")
-                            savePrinterConfiguration()
-                            savePreferences() // Save checkbox preferences
-                            Toast.makeText(this@PrinterSetupActivity, "Printer test successful!", Toast.LENGTH_SHORT).show()
-                            navigateToMainActivity()
-                        } else {
-                            // Test failed - show error
-                            updateStatus("Test print failed: ${result.message}")
-                            android.app.AlertDialog.Builder(this@PrinterSetupActivity)
-                                .setTitle("Test Print Failed")
-                                .setMessage("Printer test failed: ${result.message}\n\nPlease check:\n• Printer is powered on\n• Printer is connected\n• Paper is loaded")
-                                .setPositiveButton("Retry") { _, _ -> testPrintAndSave() }
-                                .setNegativeButton("Cancel", null)
-                                .show()
-                        }
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        continueButton.isEnabled = true
-                        updateStatus("Test print error: ${e.message}")
+            "lan" -> {
+                val parts = printer.address.split(":")
+                mapOf(
+                    "ip" to (parts.getOrNull(0) ?: "192.168.1.100"),
+                    "port" to (parts.getOrNull(1) ?: "9100")
+                )
+            }
+            else -> emptyMap()
+        }
+        val paperWidth = when {
+            selectedModel.contains("58") -> PrinterConfigManager.PAPER_58MM
+            selectedModel.contains("90") -> PrinterConfigManager.PAPER_112MM
+            else -> PrinterConfigManager.PAPER_80MM
+        }
+        val testConfig = PrinterConfigManager.PrinterConfig(
+            type = printer.type,
+            name = "${printer.name} (${selectedModel})",
+            enabled = true,
+            paperWidth = paperWidth,
+            connectionParams = connectionParams,
+            advancedSettings = mapOf("cutMode" to selectedCutMode),
+            isDefault = true
+        )
+        val testText = """
+            ================================
+            PRINTER TEST
+            ================================
+
+            Printer: ${printer.name}
+            Type: ${printer.type.uppercase()}
+            Model: $selectedModel
+            Paper: ${paperWidth} dots
+
+            If you can read this,
+            your printer is working correctly!
+
+            Time: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}
+
+            ================================
+            END OF TEST
+            ================================
+        """.trimIndent()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                printerConfigManager.saveProfile(testConfig)
+                val result = com.elintpos.wrapper.UnifiedPrinterHandler(this@PrinterSetupActivity)
+                    .print(testText, printer.type)
+                withContext(Dispatchers.Main) {
+                    testPrintButton.isEnabled = true
+                    if (result.success) {
+                        updateStatus("Test slip printed. You can continue when it looks right.")
+                        Toast.makeText(this@PrinterSetupActivity, "Test print sent", Toast.LENGTH_SHORT).show()
+                    } else {
+                        updateStatus("Test print failed: ${result.message}")
                         android.app.AlertDialog.Builder(this@PrinterSetupActivity)
-                            .setTitle("Test Print Error")
-                            .setMessage("Error testing printer: ${e.message}")
-                            .setPositiveButton("Retry") { _, _ -> testPrintAndSave() }
+                            .setTitle("Test Print Failed")
+                            .setMessage("Printer test failed: ${result.message}\n\nPlease check:\n• Printer is powered on\n• Printer is connected\n• Paper is loaded")
+                            .setPositiveButton("Retry") { _, _ -> printTestSlip() }
                             .setNegativeButton("Cancel", null)
                             .show()
                     }
                 }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    testPrintButton.isEnabled = true
+                    updateStatus("Test print error: ${e.message}")
+                    android.app.AlertDialog.Builder(this@PrinterSetupActivity)
+                        .setTitle("Test Print Error")
+                        .setMessage("Error testing printer: ${e.message}")
+                        .setPositiveButton("Retry") { _, _ -> printTestSlip() }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                }
             }
-        } ?: run {
-            Toast.makeText(this, "Please select a printer", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -772,6 +832,7 @@ class PrinterSetupActivity : ComponentActivity() {
                 enabled = true,
                 paperWidth = paperWidth,
                 connectionParams = connectionParams,
+                advancedSettings = mapOf("cutMode" to selectedCutMode),
                 isDefault = true
             )
 
@@ -894,15 +955,10 @@ class PrinterSetupActivity : ComponentActivity() {
             holder.typeText.text = printer.type.uppercase()
 
             // Highlight selected item
-            if (position == selectedPosition) {
-                holder.container.setBackgroundColor(
-                    ContextCompat.getColor(holder.itemView.context, android.R.color.holo_blue_light)
-                )
-            } else {
-                holder.container.setBackgroundColor(
-                    ContextCompat.getColor(holder.itemView.context, android.R.color.transparent)
-                )
-            }
+            holder.container.setBackgroundResource(
+                if (position == selectedPosition) R.drawable.bg_printer_item_selected
+                else R.drawable.bg_printer_item
+            )
 
             holder.itemView.setOnClickListener {
                 val previousSelected = selectedPosition
