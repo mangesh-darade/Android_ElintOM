@@ -695,6 +695,33 @@ object K8BillBitmap {
             """name=["']elint-invoice-lines["'][^>]*content=["'](\d+)["']""",
             RegexOption.IGNORE_CASE
         ).find(html)?.groupValues?.get(1) != "0"
+        val billColumns = Regex(
+            """name=["']elint-bill-columns["'][^>]*content=["'](\d+)["']""",
+            RegexOption.IGNORE_CASE
+        ).find(html)?.groupValues?.get(1)?.toIntOrNull()?.coerceIn(2, 12) ?: 5
+        val billHasSr = Regex(
+            """name=["']elint-bill-sr["'][^>]*content=["'](\d+)["']""",
+            RegexOption.IGNORE_CASE
+        ).find(html)?.groupValues?.get(1) == "1"
+        val nameShare = when {
+            billColumns <= 4 -> 40
+            billColumns <= 6 -> 32
+            else -> 24
+        }
+        val nameColumnCss = if (billHasSr) {
+            """
+            table.table thead th:first-child { width: 8% !important; text-align: center !important; }
+            table.table thead th:nth-child(2) { width: ${nameShare}% !important; text-align: left !important; }
+            table.table tbody td:nth-child(2) { text-align: left !important; }
+            """
+        } else {
+            """
+            table.table thead th:first-child { width: ${nameShare}% !important; text-align: left !important; }
+            """
+        }
+        val crowded = billColumns >= 7
+        val tableFont = if (crowded) (body * 0.78f).toInt().coerceAtLeast(16) else table
+        val cellPadX = if (crowded) 2 else padX
         val lineCss = if (showLines) """
             table.table thead th {
                 border-top: 2px solid #000000 !important;
@@ -779,23 +806,28 @@ object K8BillBitmap {
                 width: 100% !important;
                 max-width: 100% !important;
                 border-collapse: collapse !important;
-                table-layout: auto !important;
+                table-layout: fixed !important;
                 margin-top: 8px !important;
             }
             table.table th, table.table td {
-                padding: ${padY}px ${padX}px !important;
+                min-width: 0 !important;
+                padding: ${padY}px ${cellPadX}px !important;
                 color: #000000 !important;
                 vertical-align: middle !important;
-                font-size: ${table}px !important;
+                font-size: ${tableFont}px !important;
                 line-height: 1.35 !important;
+                white-space: normal !important;
                 word-wrap: break-word !important;
-                overflow-wrap: break-word !important;
+                overflow-wrap: anywhere !important;
                 border: none !important;
                 background: #ffffff !important;
             }
             table.table thead th {
                 font-weight: 700 !important;
+                text-align: center !important;
             }
+            table.table tbody td:first-child { text-align: left !important; }
+            $nameColumnCss
             $lineCss
             table.table tfoot th {
                 vertical-align: top !important;
@@ -837,11 +869,16 @@ object K8BillBitmap {
             table.table th.quantity, table.table td.quantity,
             table.table th.unit_quantity, table.table td.unit_quantity {
                 text-align: center !important;
-                white-space: nowrap !important;
             }
-            table.table th.subtotal, table.table td.subtotal {
+            table.table th.subtotal, table.table td.subtotal,
+            table.table th.invoice_unit_price, table.table td.invoice_unit_price,
+            table.table th.invoice_net_unit_price, table.table td.invoice_net_unit_price,
+            table.table th.unit_price, table.table td.unit_price,
+            table.table th.real_unit_price, table.table td.real_unit_price,
+            table.table th.net_unit_price, table.table td.net_unit_price,
+            table.table th.net_price, table.table td.net_price,
+            table.table th.item_tax, table.table td.item_tax {
                 text-align: right !important;
-                white-space: nowrap !important;
             }
             table:not(.table) td, table:not(.table) th {
                 border: none !important;
