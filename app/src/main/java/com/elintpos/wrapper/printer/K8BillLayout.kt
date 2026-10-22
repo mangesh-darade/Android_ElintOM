@@ -48,8 +48,8 @@ object K8BillLayout {
      */
     fun bodyPx(fontPt: Int, paperDots: Int): Int {
         val pt = fontPt.coerceIn(8, 18)
-        val dotsPerPt = if (paperDots >= 500) 2.9f else 1.9f
-        return (pt * dotsPerPt).toInt().coerceIn(22, 46)
+        val dotsPerPt = if (paperDots >= 500) 2.8f else 1.85f
+        return (pt * dotsPerPt).toInt().coerceIn(18, 42)
     }
 
     fun readyToCapture(height: Int, stableCount: Int, attempt: Int, imagesPending: Boolean): Boolean {

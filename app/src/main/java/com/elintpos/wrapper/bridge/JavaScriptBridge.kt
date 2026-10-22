@@ -147,7 +147,8 @@ class JavaScriptBridge(
         }
         
         val basePath = try {
-            java.net.URI(baseUrl).path?.trimEnd('/') ?: ""
+            val p = java.net.URI(baseUrl).path?.trimEnd('/') ?: ""
+            if (p.endsWith("/pos")) p.substringBeforeLast("/pos") else p
         } catch (_: Exception) {
             ""
         }
@@ -296,7 +297,13 @@ class JavaScriptBridge(
     fun openReceiptDialogForOrder(orderId: String?): String {
         return try {
             if (orderId.isNullOrBlank()) return createErrorResponse("Empty orderId")
-            val guess = getBaseUrl() + "pos/receipt/" + orderId + "?print=1"
+            val baseUrl = getBaseUrl().trimEnd('/')
+            val root = if (baseUrl.endsWith("/pos")) {
+                baseUrl.substringBeforeLast("/pos")
+            } else {
+                baseUrl
+            }
+            val guess = "$root/pos/receipt/$orderId?print=1"
             
             activity.runOnUiThread {
                 val i = Intent(activity, ReceiptActivity::class.java)

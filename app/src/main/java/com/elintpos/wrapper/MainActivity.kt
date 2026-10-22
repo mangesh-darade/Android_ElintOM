@@ -110,7 +110,8 @@ class MainActivity : ComponentActivity() {
         }
 
         val basePath = try {
-            URI(baseUrl).path?.trimEnd('/') ?: ""
+            val p = URI(baseUrl).path?.trimEnd('/') ?: ""
+            if (p.endsWith("/pos")) p.substringBeforeLast("/pos") else p
         } catch (_: Exception) {
             ""
         }

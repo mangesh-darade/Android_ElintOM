@@ -710,13 +710,13 @@ object K8BillBitmap {
         }
         val nameColumnCss = if (billHasSr) {
             """
-            table.table thead th:first-child { width: 8% !important; text-align: center !important; }
-            table.table thead th:nth-child(2) { width: ${nameShare}% !important; text-align: left !important; }
-            table.table tbody td:nth-child(2) { text-align: left !important; }
+            table.table:not(.tax-summary-table) thead th:first-child { width: 8% !important; text-align: center !important; }
+            table.table:not(.tax-summary-table) thead th:nth-child(2) { width: ${nameShare}% !important; text-align: left !important; }
+            table.table:not(.tax-summary-table) tbody td:nth-child(2) { text-align: left !important; }
             """
         } else {
             """
-            table.table thead th:first-child { width: ${nameShare}% !important; text-align: left !important; }
+            table.table:not(.tax-summary-table) thead th:first-child { width: ${nameShare}% !important; text-align: left !important; }
             """
         }
         val crowded = billColumns >= 7
@@ -850,6 +850,32 @@ object K8BillBitmap {
                 border: none !important;
                 margin-top: 6px !important;
             }
+            .tax_summary_head, h4.tax_summary_head {
+                font-size: ${body}px !important;
+                font-weight: 700 !important;
+                text-align: center !important;
+                margin: 8px 0 4px !important;
+            }
+            .tax_summary_tbl, table.tax_summary_tbl {
+                width: 100% !important;
+                max-width: 100% !important;
+                table-layout: fixed !important;
+                border-collapse: collapse !important;
+                margin: 4px 0 6px !important;
+            }
+            .tax_summary_tbl th, .tax_summary_tbl td {
+                padding: 2px 1px !important;
+                font-size: ${(body * 0.74f).toInt().coerceAtLeast(12)}px !important;
+                line-height: 1.2 !important;
+                white-space: nowrap !important;
+                word-wrap: normal !important;
+                word-break: normal !important;
+                overflow-wrap: normal !important;
+                overflow: hidden !important;
+                text-overflow: clip !important;
+                border: 1px solid #000000 !important;
+                background: #ffffff !important;
+            }
             .k8-pay table { width: 100% !important; table-layout: fixed !important; }
             .k8-pay td:nth-child(1) { text-align: left !important; width: 34% !important; }
             .k8-pay td:nth-child(2) { text-align: center !important; width: 38% !important; }
@@ -863,22 +889,28 @@ object K8BillBitmap {
                 padding-top: 8px !important;
                 text-align: center !important;
             }
-            table.table th.mrp, table.table td.mrp,
-            table.table th.item_discount, table.table td.item_discount,
-            table.table th.discount, table.table td.discount,
             table.table th.quantity, table.table td.quantity,
             table.table th.unit_quantity, table.table td.unit_quantity {
+                width: 14% !important;
                 text-align: center !important;
+                white-space: nowrap !important;
+            }
+            table.table th.unit_price, table.table td.unit_price,
+            table.table th.real_unit_price, table.table td.real_unit_price,
+            table.table th.net_unit_price, table.table td.net_unit_price,
+            table.table th.mrp, table.table td.mrp {
+                width: 20% !important;
+                text-align: right !important;
+                white-space: nowrap !important;
             }
             table.table th.subtotal, table.table td.subtotal,
             table.table th.invoice_unit_price, table.table td.invoice_unit_price,
             table.table th.invoice_net_unit_price, table.table td.invoice_net_unit_price,
-            table.table th.unit_price, table.table td.unit_price,
-            table.table th.real_unit_price, table.table td.real_unit_price,
-            table.table th.net_unit_price, table.table td.net_unit_price,
             table.table th.net_price, table.table td.net_price,
             table.table th.item_tax, table.table td.item_tax {
+                width: 22% !important;
                 text-align: right !important;
+                white-space: nowrap !important;
             }
             table:not(.table) td, table:not(.table) th {
                 border: none !important;

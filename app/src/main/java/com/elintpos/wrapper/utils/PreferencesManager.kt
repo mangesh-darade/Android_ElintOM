@@ -166,10 +166,9 @@ class PreferencesManager(private val context: Context) {
      */
     fun getBaseUrl(): String {
         val savedDomain = selectedDomain
-        return if (savedDomain != null && savedDomain.isNotEmpty()) {
+        return if (!savedDomain.isNullOrBlank()) {
             if (savedDomain.startsWith("http://") || savedDomain.startsWith("https://")) {
-                val url = savedDomain.trimEnd('/')
-                if (!url.endsWith("/")) "$url/" else url
+                savedDomain.trimEnd('/')
             } else {
                 "https://${savedDomain.trimEnd('/')}/"
             }
@@ -179,12 +178,21 @@ class PreferencesManager(private val context: Context) {
     }
     
     /**
-     * Get the base domain (without scheme) from saved preference or use default
+     * Get the base domain (without scheme or path) from saved preference or use default
      */
     fun getBaseDomain(): String {
         val savedDomain = selectedDomain
-        return if (savedDomain != null && savedDomain.isNotEmpty()) {
-            savedDomain.replace(Regex("^https?://"), "").trimEnd('/')
+        return if (!savedDomain.isNullOrBlank()) {
+            try {
+                val candidate = if (savedDomain.startsWith("http://") || savedDomain.startsWith("https://")) {
+                    android.net.Uri.parse(savedDomain).host
+                } else {
+                    android.net.Uri.parse("https://$savedDomain").host
+                }
+                candidate ?: savedDomain.replace(Regex("^https?://"), "").split('/')[0].trimEnd('/')
+            } catch (_: Exception) {
+                savedDomain.replace(Regex("^https?://"), "").split('/')[0].trimEnd('/')
+            }
         } else {
             com.elintpos.wrapper.config.AppConfig.Network.DEFAULT_DOMAIN
         }
