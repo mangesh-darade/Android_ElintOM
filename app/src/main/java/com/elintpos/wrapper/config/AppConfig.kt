@@ -99,10 +99,10 @@ object AppConfig {
         const val DOMAIN_API_URL = "https://ElintOm.Elintpos.in/android_api/getUserDomain"
         
         /** Default domain fallback */
-        const val DEFAULT_DOMAIN = "192.168.1.10"
+        const val DEFAULT_DOMAIN = "1602clothingqa.elintpos.in"
         
         /** Default base URL */
-        val DEFAULT_BASE_URL = "http://192.168.1.10/elintpos_in_15.01_AWS_India/pos"
+        val DEFAULT_BASE_URL = "https://$DEFAULT_DOMAIN/"
     }
     
     /**

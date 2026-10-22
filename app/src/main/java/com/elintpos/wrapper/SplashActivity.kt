@@ -62,8 +62,8 @@ class SplashActivity : ComponentActivity() {
         val prefs = getSharedPreferences("settings", MODE_PRIVATE)
         val isPrinterConfigured = prefs.getBoolean("printer_configured", false)
 
-        // Set target URL
-        prefs.edit().putString("selected_domain", "http://192.168.1.10/elintpos_in_15.01_AWS_India/pos").apply()
+        // Set QA domain
+        prefs.edit().putString("selected_domain", "https://1602clothingqa.elintpos.in/").apply()
 
         val intent = if (!isPrinterConfigured) {
             Intent(this, PrinterSetupActivity::class.java)
