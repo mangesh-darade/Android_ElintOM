@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ElintPOS Android - Printer Setup & Login Guide</title>
+    <style>
+        :root {
+            --primary: #104f32;
+            --primary-light: #e8f5e9;
+            --secondary: #0284c7;
+            --text-main: #1f2937;
+            --text-muted: #4b5563;
+            --border: #e5e7eb;
+            --bg-card: #ffffff;
+            --bg-page: #f9fafb;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            background-color: var(--bg-page);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 24px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--bg-card);
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+            padding: 40px;
+        }
+        .header {
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            color: var(--primary);
+            font-size: 26px;
+            font-weight: 800;
+        }
+        .header .badge {
+            background: var(--primary-light);
+            color: var(--primary);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .step-card {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 32px;
+            background: #ffffff;
+            page-break-inside: avoid;
+        }
+        .step-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .step-num {
+            background: var(--primary);
+            color: #ffffff;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 15px;
+        }
+        .step-title h2 {
+            font-size: 20px;
+            color: #111827;
+        }
+        .step-desc {
+            color: var(--text-muted);
+            margin-bottom: 18px;
+            font-size: 15px;
+        }
+        .img-container {
+            text-align: center;
+            margin: 16px 0;
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        .img-container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            display: block;
+            margin: 0 auto;
+        }
+        .details-list {
+            margin: 16px 0 0 20px;
+            font-size: 14px;
+        }
+        .details-list li {
+            margin-bottom: 8px;
+        }
+        .details-list strong {
+            color: var(--primary);
+        }
+        .tip-box {
+            background: #eff6ff;
+            border-left: 4px solid var(--secondary);
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-top: 16px;
+            font-size: 14px;
+            color: #1e3a8a;
+        }
+        .tip-box strong {
+            color: #1d4ed8;
+        }
+        @media print {
+            body { background: #fff; padding: 0; }
+            .container { box-shadow: none; padding: 20px; max-width: 100%; }
+            .step-card { page-break-inside: avoid; margin-bottom: 24px; }
+            .img-container { background: transparent; padding: 0; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div>
+            <h1>ElintPOS Android Setup Guide</h1>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 4px;">User Guide: Initial Printer Configuration & Login Process</p>
+        </div>
+        <div class="badge">Official Guide</div>
+    </div>
+
+    <!-- Step 1 -->
+    <div class="step-card">
+        <div class="step-title">
+            <div class="step-num">1</div>
+            <h2>App Boot & Initial Printer Setup Screen</h2>
+        </div>
+        <p class="step-desc">
+            Upon first launching the app after installation or storage reset, the system automatically opens the <strong>Printer Setup</strong> screen.
+        </p>
+
+        <div class="img-container">
+            <img src="./images/step1_printer_setup.png" alt="Step 1: Printer Setup Screen">
+        </div>
+
+        <ul class="details-list">
+            <li><strong>Connection Box:</strong> Choose printer interface type and model.</li>
+            <li><strong>Paper Spacing:</strong> Configure blank paper margin around the printed receipt (Default: Top 8 dots / Bottom 20 dots).</li>
+            <li><strong>After the bill:</strong> Select paper cutter action (<code>Full cut</code>, <code>Partial cut</code>, or <code>Continue</code>).</li>
+            <li><strong>Register Options:</strong>
+                <ul>
+                    <li><em>Show a print dialog before each bill</em> (shows a preview/confirmation before printing).</li>
+                    <li><em>Open this register when the device starts</em> (launches ElintPOS automatically upon device boot).</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step-card">
+        <div class="step-title">
+            <div class="step-num">2</div>
+            <h2>Select Connection Type & Printer Model</h2>
+        </div>
+        <p class="step-desc">
+            Tap the <strong>Type</strong> dropdown inside the <strong>Connection</strong> box to select your hardware interface.
+        </p>
+
+        <div class="img-container">
+            <img src="./images/step2_connection_type.png" alt="Step 2: Connection Type Selection">
+        </div>
+
+        <ul class="details-list">
+            <li><strong>Bluetooth:</strong> Wireless external thermal receipt printers (58mm / 80mm). <em>(Ensure Bluetooth is enabled and paired.)</em></li>
+            <li><strong>USB:</strong> Direct USB / OTG connection to thermal printers.</li>
+            <li><strong>LAN:</strong> Wi-Fi or Ethernet network printers (IP port 9100).</li>
+            <li><strong>TecMI K8:</strong> Built-in printer for all-in-one POS terminals.</li>
+            <li><strong>Model:</strong> Select paper roll model (e.g. <code>XP-80</code> for standard 80mm roll).</li>
+        </ul>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step-card">
+        <div class="step-title">
+            <div class="step-num">3</div>
+            <h2>Select Printer, Test Print & Continue</h2>
+        </div>
+        <p class="step-desc">
+            The selected interface displays active printers in the <strong>Available printers</strong> list.
+        </p>
+
+        <div class="img-container">
+            <img src="./images/step3_select_printer.png" alt="Step 3: Select Printer and Continue">
+        </div>
+
+        <ul class="details-list">
+            <li><strong>Select Printer:</strong> Tap your printer in the list (e.g. <em>TecMI K8 Built-in Printer</em> or paired Bluetooth device). The border turns green.</li>
+            <li><strong>Test print:</strong> Tap <strong>Test print</strong> to verify paper feed, alignment, and print clarity.</li>
+            <li><strong>Continue:</strong> Tap the green <strong>Continue</strong> button to finalize and proceed.</li>
+        </ul>
+
+        <div class="tip-box">
+            <strong>Permanent Persistence:</strong> The printer configuration is permanently stored in Android SharedPreferences. This setup screen is skipped on subsequent app launches.
+        </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="step-card">
+        <div class="step-title">
+            <div class="step-num">4</div>
+            <h2>POS Sign In & Start Billing</h2>
+        </div>
+        <p class="step-desc">
+            After setup confirmation, the app immediately transitions to the <strong>ElintPOS Sign In</strong> page.
+        </p>
+
+        <div class="img-container">
+            <img src="./images/step4_login_screen.png" alt="Step 4: POS Login Screen">
+        </div>
+
+        <ul class="details-list">
+            <li><strong>Username:</strong> Enter credentials (e.g., <code>Admin</code>).</li>
+            <li><strong>Password:</strong> Enter password (e.g., <code>Admin@554</code>).</li>
+            <li><strong>Log In:</strong> Tap the blue <strong>Log In</strong> button.</li>
+        </ul>
+
+        <div class="tip-box" style="background: #f0fdf4; border-color: #16a34a; color: #166534;">
+            <strong>Ready for Billing:</strong> Successful login opens the main POS billing register with auto-printing fully configured and active!
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
