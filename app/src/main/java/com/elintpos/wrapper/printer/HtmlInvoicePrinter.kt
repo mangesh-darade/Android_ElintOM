@@ -147,7 +147,7 @@ class HtmlInvoicePrinter(private val context: Context) {
                 val printer = TecMiK8Printer(context)
                 val cutMode = profile.advancedSettings["cutMode"]?.toString()?.takeIf { it.isNotBlank() }
                     ?: com.elintpos.wrapper.utils.PreferencesManager(context).printCutMode
-                val printed = printer.printBitmap(bitmap, cutMode)
+                val printed = printer.printBitmap(bitmap, cutMode, topGapApplied = true)
                 UnifiedPrinterHandler.PrintResult(printed.success, printed.message)
             } else {
                 unifiedPrinterHandler.printRasterBitmap(bitmap, preferType)
@@ -191,7 +191,7 @@ class HtmlInvoicePrinter(private val context: Context) {
         return try {
             val cutMode = profile.advancedSettings["cutMode"]?.toString()?.takeIf { it.isNotBlank() }
                 ?: com.elintpos.wrapper.utils.PreferencesManager(context).printCutMode
-            val printed = printer.printBitmap(bitmap, cutMode)
+            val printed = printer.printBitmap(bitmap, cutMode, topGapApplied = true)
             if (!printed.success) {
                 saveErrorLog(
                     errorType = "PRINT_FAILED",

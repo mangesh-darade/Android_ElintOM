@@ -49,6 +49,10 @@ android {
     }
 
     packaging {
+        jniLibs {
+            // Store .so uncompressed and 16 KB zip-aligned (Android 15+ 16 KB page size)
+            useLegacyPackaging = false
+        }
         resources {
             excludes += setOf(
                 // Prevent bundling Windows SDK files

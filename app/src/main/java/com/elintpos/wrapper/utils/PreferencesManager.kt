@@ -49,6 +49,7 @@ class PreferencesManager(private val context: Context) {
         private const val KEY_PRINT_TOP_GAP = "print_top_gap_dots"
         private const val KEY_PRINT_BOTTOM_GAP = "print_bottom_gap_dots"
         private const val KEY_PRINT_CUT_MODE = "print_cut_mode"
+        private const val KEY_PRINT_DENSITY = "print_density"
         const val DEFAULT_PRINT_TOP_GAP = 8
         const val DEFAULT_PRINT_BOTTOM_GAP = 20
         const val MAX_PRINT_TOP_GAP = 48
@@ -143,6 +144,11 @@ class PreferencesManager(private val context: Context) {
     var printCutMode: String
         get() = prefs.getString(KEY_PRINT_CUT_MODE, "full_cut") ?: "full_cut"
         set(value) = prefs.edit().putString(KEY_PRINT_CUT_MODE, value).apply()
+
+    /** TecMI K8 print darkness, 1..4 (ICOD setPrintDensity). 0 = leave printer default. */
+    var printDensity: Int
+        get() = prefs.getInt(KEY_PRINT_DENSITY, 0).coerceIn(0, 4)
+        set(value) = prefs.edit().putInt(KEY_PRINT_DENSITY, value.coerceIn(0, 4)).apply()
     
     /**
      * Clear all preferences (use with caution)

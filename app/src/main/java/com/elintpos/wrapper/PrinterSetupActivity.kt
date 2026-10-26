@@ -72,6 +72,9 @@ class PrinterSetupActivity : ComponentActivity() {
     private lateinit var cutModeSpinner: Spinner
     private var selectedCutMode: String = "full_cut"
     private val cutModeLabels = listOf("Full cut", "Partial cut", "Continue")
+    private lateinit var printDensitySpinner: Spinner
+    private var selectedPrintDensity: Int = 0
+    private val printDensityLabels = listOf("Default (unchanged)", "Level 1", "Level 2", "Level 3", "Level 4")
 
     // Printer data
     private val availablePrinters = mutableListOf<PrinterInfo>()
@@ -156,6 +159,7 @@ class PrinterSetupActivity : ComponentActivity() {
         topGapValue = findViewById(R.id.topGapValue)
         bottomGapValue = findViewById(R.id.bottomGapValue)
         cutModeSpinner = findViewById(R.id.cutModeSpinner)
+        printDensitySpinner = findViewById(R.id.printDensitySpinner)
         
         // Load saved preferences
         loadPreferences()
@@ -206,6 +210,7 @@ class PrinterSetupActivity : ComponentActivity() {
         topGapValue.text = formatGap(stored.printTopGapDots)
         bottomGapValue.text = formatGap(stored.printBottomGapDots)
         selectedCutMode = stored.printCutMode
+        selectedPrintDensity = stored.printDensity
     }
 
     private fun setupGapControls() {
@@ -431,6 +436,7 @@ class PrinterSetupActivity : ComponentActivity() {
         stored.printTopGapDots = topGapSeek.progress
         stored.printBottomGapDots = bottomGapSeek.progress
         stored.printCutMode = selectedCutMode
+        stored.printDensity = selectedPrintDensity
         prefs.edit()
             .putBoolean("auto_start_enabled", autoStartEnabled)
             .putBoolean("kiosk_enabled", autoStartEnabled)
@@ -506,6 +512,34 @@ class PrinterSetupActivity : ComponentActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+
+        val densityAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, printDensityLabels)
+        densityAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        printDensitySpinner.adapter = densityAdapter
+        printDensitySpinner.setSelection(selectedPrintDensity.coerceIn(0, 4), false)
+        printDensitySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val changed = position != selectedPrintDensity
+                selectedPrintDensity = position
+                PreferencesManager(this@PrinterSetupActivity).printDensity = position
+                if (changed && position > 0) applyPrintDensityNow()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    /** Pushes the chosen darkness to a connected TecMI K8 printer right away (connect() applies it). */
+    private fun applyPrintDensityNow() {
+        Thread {
+            val k8 = com.elintpos.wrapper.printer.vendor.TecMiK8Printer(applicationContext)
+            val message = if (!k8.isAvailable() || !k8.isHardwareDetected()) {
+                "Saved. It will be applied when the TecMI K8 printer connects."
+            } else {
+                val result = k8.connect()
+                if (result.success) "Print darkness applied to the printer" else "Saved, but not applied: ${result.message}"
+            }
+            runOnUiThread { updateStatus(message) }
+        }.start()
     }
 
     private fun setupRecyclerView() {
@@ -750,15 +784,23 @@ class PrinterSetupActivity : ComponentActivity() {
     }
 
     private fun showTecMiK8Printer() {
+        val detected = try {
+            com.elintpos.wrapper.printer.vendor.TecMiK8Printer(this).let { it.isAvailable() && it.isHardwareDetected() }
+        } catch (e: Throwable) {
+            false
+        }
         availablePrinters.add(
             PrinterInfo(
-                name = "TecMI K8 Built-in Printer",
+                name = if (detected) "TecMI K8 Built-in Printer" else "TecMI K8 Built-in Printer (not detected)",
                 address = "usb",
                 type = "tecmi_k8",
                 model = "TecMI K8"
             )
         )
-        updateStatus("TecMI K8 built-in USB printer. Select it, then run Test Print.")
+        updateStatus(
+            if (detected) "TecMI K8 built-in USB printer. Select it, then run Test Print."
+            else "No TecMI K8 printer found on this device (no USB printer or serial port). It only works on the K8 terminal."
+        )
         printerRecyclerView.adapter?.notifyItemInserted(0)
     }
 

@@ -47,6 +47,8 @@ class TecMiK8Printer(private val context: Context) {
         }
     }
 
+    private var appliedDensity = -1
+
     fun connect(): Result {
         if (!libsLoaded) {
             return Result(false, loadError ?: "TecMI K8 native libraries failed to load")
@@ -54,11 +56,14 @@ class TecMiK8Printer(private val context: Context) {
         return synchronized(LOCK) {
             try {
                 val printer = PrinterAPI.getInstance()
-                if (printer.isConnect) {
+                val result = if (printer.isConnect) {
                     Result(true, "TecMI K8 printer already connected")
                 } else {
+                    appliedDensity = -1
                     connectTransport(printer)
                 }
+                if (result.success) applyPrintDensity(printer)
+                result
             } catch (e: Throwable) {
                 Log.e(TAG, "Connect failed", e)
                 Result(false, "TecMI K8 connect error: ${e.message}")
@@ -73,10 +78,12 @@ class TecMiK8Printer(private val context: Context) {
                 val printer = PrinterAPI.getInstance()
                 if (!printer.isConnect) {
                     connectedTransport = null
+                    appliedDensity = -1
                     Result(true, "TecMI K8 printer already disconnected")
                 } else {
                     val code = printer.disconnect()
                     connectedTransport = null
+                    appliedDensity = -1
                     if (code == PrinterAPI.SUCCESS) {
                         Result(true, "Disconnected TecMI K8 printer")
                     } else {
@@ -136,6 +143,7 @@ class TecMiK8Printer(private val context: Context) {
                     printer.setLineSpace(lineSpacing)
                 }
                 printer.setAlignMode(0)
+                feedTopGap(printer)
                 val code = printer.printString(plain)
                 if (code != PrinterAPI.SUCCESS) {
                     return@synchronized Result(false, "TecMI K8 print failed (code $code)")
@@ -149,11 +157,12 @@ class TecMiK8Printer(private val context: Context) {
         }.let { withCashDrawer(text, it) }
     }
 
-    fun printBitmap(bitmap: Bitmap, cutMode: String = "full_cut"): Result {
+    /** [topGapApplied] is true when the bitmap already carries the top gap (HTML invoices). */
+    fun printBitmap(bitmap: Bitmap, cutMode: String = "full_cut", topGapApplied: Boolean = false): Result {
         val ready = connect()
         if (!ready.success) return ready
         return synchronized(LOCK) {
-            printBitmapLocked(bitmap, cutMode)
+            printBitmapLocked(bitmap, cutMode, topGapApplied)
         }
     }
 
@@ -169,6 +178,7 @@ class TecMiK8Printer(private val context: Context) {
         return synchronized(LOCK) {
             try {
                 val printer = PrinterAPI.getInstance()
+                feedTopGap(printer)
                 printer.setBarCodeWidth(width)
                 printer.setBarCodeHeight(height)
                 val code = printer.printBarCode(barcodeType, data.length, data)
@@ -190,6 +200,7 @@ class TecMiK8Printer(private val context: Context) {
         return synchronized(LOCK) {
             try {
                 val printer = PrinterAPI.getInstance()
+                feedTopGap(printer)
                 val code = printer.printQRCode(data, size.coerceIn(1, 16), false)
                 if (code != PrinterAPI.SUCCESS) {
                     return@synchronized Result(false, "TecMI K8 QR print failed (code $code)")
@@ -266,6 +277,30 @@ class TecMiK8Printer(private val context: Context) {
                 Log.e(TAG, "status failed", e)
                 Result(false, "TecMI K8 status error: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Applies the saved print darkness (1..4) once per connection, and again if the user changes it.
+     * Models differ in which command they honour: setPrintDensity (switch bits) or setPrintDensity2
+     * (ESC 0xFD n), so the second is tried when the first is rejected.
+     */
+    private fun applyPrintDensity(printer: PrinterAPI) {
+        val level = PreferencesManager(context).printDensity
+        if (level <= 0 || level == appliedDensity) return
+        try {
+            var code = printer.setPrintDensity(level)
+            if (code != PrinterAPI.SUCCESS) {
+                Log.w(TAG, "setPrintDensity($level) code $code, trying setPrintDensity2")
+                code = printer.setPrintDensity2(level)
+            }
+            if (code == PrinterAPI.SUCCESS) {
+                appliedDensity = level
+            } else {
+                Log.w(TAG, "Print density $level not accepted by ${printer.printerType} (code $code)")
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "Applying print density $level failed", e)
         }
     }
 
@@ -410,6 +445,9 @@ class TecMiK8Printer(private val context: Context) {
         return K8SerialPorts.candidates(found, connectedTransport?.takeIf { it.startsWith("/") })
     }
 
+    /** True when a USB device or a candidate serial port exists, i.e. a K8 printer could be attached. */
+    fun isHardwareDetected(): Boolean = usbDevices().isNotEmpty() || serialCandidates().isNotEmpty()
+
     private fun withCashDrawer(text: String, result: Result): Result {
         if (!result.success || !CashSale.shouldOpenDrawer(text)) return result
         val drawer = openCashDrawer()
@@ -421,9 +459,10 @@ class TecMiK8Printer(private val context: Context) {
         return Result(true, message)
     }
 
-    private fun printBitmapLocked(bitmap: Bitmap, cutMode: String): Result {
+    private fun printBitmapLocked(bitmap: Bitmap, cutMode: String, topGapApplied: Boolean): Result {
         return try {
             val printer = PrinterAPI.getInstance()
+            if (!topGapApplied) feedTopGap(printer)
             val aligned = alignWidth(bitmap)
             val slices = sliceBitmap(aligned)
             try {
@@ -469,11 +508,17 @@ class TecMiK8Printer(private val context: Context) {
         return slices
     }
 
+    /** Blank paper above the first line, from the "Top gap" setting (dots). */
+    private fun feedTopGap(printer: PrinterAPI) {
+        val dots = PreferencesManager(context).printTopGapDots
+        if (dots > 0) printer.printAndFeedPaper(dots.coerceAtMost(255))
+    }
+
     private fun finishJob(printer: PrinterAPI, cutMode: String) {
         val feed = PreferencesManager(context).printBottomGapDots
         when (cutMode.lowercase()) {
             "partial_cut", "partial" -> printer.cutPaper(feed, 1)
-            "no_cut", "none", "continue" -> if (feed > 0) printer.printFeed()
+            "no_cut", "none", "continue" -> if (feed > 0) printer.printAndFeedPaper(feed.coerceAtMost(255))
             else -> printer.cutPaper(feed, 0)
         }
     }
