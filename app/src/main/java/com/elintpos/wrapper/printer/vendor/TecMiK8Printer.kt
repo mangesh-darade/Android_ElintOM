@@ -517,9 +517,16 @@ class TecMiK8Printer(private val context: Context) {
     private fun finishJob(printer: PrinterAPI, cutMode: String) {
         val feed = PreferencesManager(context).printBottomGapDots
         when (cutMode.lowercase()) {
-            "partial_cut", "partial" -> printer.cutPaper(feed, 1)
+            // SDK signature is cutPaper(mode, feed): mode 0 = full, 1 = partial
+            "partial_cut", "partial" -> {
+                if (feed > 0) printer.printAndFeedPaper(feed.coerceAtMost(255))
+                printer.cutPaper(1, 0)
+            }
             "no_cut", "none", "continue" -> if (feed > 0) printer.printAndFeedPaper(feed.coerceAtMost(255))
-            else -> printer.cutPaper(feed, 0)
+            else -> {
+                if (feed > 0) printer.printAndFeedPaper(feed.coerceAtMost(255))
+                printer.cutPaper(0, 0)
+            }
         }
     }
 
