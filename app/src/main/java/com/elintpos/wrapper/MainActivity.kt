@@ -73,7 +73,13 @@ class MainActivity : ComponentActivity() {
 						try {
 							var result = ElintPOSNative.showNativePrintDialog();
 							var response = JSON.parse(result || '{}');
-							if (response.ok) return;
+							if (response.ok) {
+								// Auto print screens wait for afterprint to continue / reload.
+								setTimeout(function() {
+									try { window.dispatchEvent(new Event('afterprint')); } catch (e2) {}
+								}, 1500);
+								return;
+							}
 						} catch (e) {}
 					}
 					if (originalPrint && typeof originalPrint === 'function') {
@@ -564,6 +570,8 @@ class MainActivity : ComponentActivity() {
 			override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
 				super.onPageStarted(view, url, favicon)
 				Log.d(TAG, "Page started loading: $url")
+				// Early install so pages that call window.print() right after load (auto print) are covered.
+				view?.evaluateJavascript(PRINT_OVERRIDE_SCRIPT, null)
 			}
 			
 			override fun onPageFinished(view: WebView?, url: String?) {
@@ -928,6 +936,11 @@ class MainActivity : ComponentActivity() {
 					return true
 				}
 				return false
+			}
+
+			override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+				super.onPageStarted(view, url, favicon)
+				view?.evaluateJavascript(popupPrintScript, null)
 			}
 
 			override fun onPageFinished(view: WebView?, url: String?) {

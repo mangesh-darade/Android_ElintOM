@@ -702,7 +702,7 @@ class JavaScriptBridge(
                                 if (typeof window.elintposInvoiceHtml === 'function') {
                                     var customHtml = window.elintposInvoiceHtml();
                                     if (customHtml && customHtml.trim().length > 0) {
-                                        return JSON.stringify(customHtml);
+                                        return customHtml;
                                     }
                                 }
                                 var receipt = document.getElementById('receiptData') || document.getElementById('receipt-data') || document.getElementById('wrapper') || document.body;
@@ -713,9 +713,9 @@ class JavaScriptBridge(
                                 }
                                 var headContent = document.head ? document.head.innerHTML : '';
                                 var fullHtml = '<!DOCTYPE html><html><head>' + headContent + '</head><body>' + clone.outerHTML + '</body></html>';
-                                return JSON.stringify(fullHtml);
+                                return fullHtml;
                             } catch (e) {
-                                return JSON.stringify('');
+                                return '';
                             }
                         })();
                     """.trimIndent()) { jsonContent ->
