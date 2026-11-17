@@ -114,7 +114,10 @@ class PrinterSetupActivity : ComponentActivity() {
         bluetoothPermissionLauncher = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { permissions ->
-            val allGranted = permissions.values.all { it }
+            // Do not trust the result map alone: it can be empty (all{} on an empty map is true) when
+            // the system cannot show the dialog. Then discoverPrinters() asks again, the result is
+            // empty again, and the loop ends in a StackOverflowError. Check the real permission.
+            val allGranted = permissions.isNotEmpty() && permissions.values.all { it } && checkBluetoothPermissions()
             if (allGranted) {
                 // Permissions granted, discover printers
                 discoverPrinters()
