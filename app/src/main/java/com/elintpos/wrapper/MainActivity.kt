@@ -293,6 +293,11 @@ class MainActivity : ComponentActivity() {
 	private fun loadInitialUrl() {
 		try {
 			val url = intent?.dataString ?: getBaseUrl()
+			if (url.isBlank()) {
+				startActivity(Intent(this, AndroidCodeActivity::class.java))
+				finish()
+				return
+			}
 			Log.d(TAG, "Loading initial URL: $url")
 			if (::webView.isInitialized) {
 				webView.loadUrl(url)
@@ -336,9 +341,74 @@ class MainActivity : ComponentActivity() {
 		settingsButton.setOnClickListener {
 			showPrinterSettingsPopup()
 		}
+		settingsButton.setOnLongClickListener {
+			showServerUrlDialog()
+			true
+		}
 		
 		return settingsButton
 	}
+
+    /** Long-press the gear: change the server URL, test it, save it and reload. */
+    private fun showServerUrlDialog() {
+        val input = android.widget.EditText(this).apply {
+            setText(preferencesManager.getBaseUrl())
+            hint = "https://yourshop.elintpos.in/"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setSingleLine(true)
+        }
+        val status = android.widget.TextView(this).apply { setPadding(0, 16, 0, 0) }
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 16, 48, 0)
+            addView(input)
+            addView(status)
+        }
+        fun sanitize(raw: String): String {
+            var u = raw.trim()
+            if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
+            if (!u.endsWith("/")) u += "/"
+            return u
+        }
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Server URL")
+            .setView(box)
+            .setPositiveButton("Save", null)
+            .setNeutralButton("Check", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val url = sanitize(input.text.toString())
+                status.text = "Checking..."
+                Thread {
+                    val msg = try {
+                        val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                        c.connectTimeout = 8000
+                        c.readTimeout = 8000
+                        c.instanceFollowRedirects = true
+                        val code = c.responseCode
+                        c.disconnect()
+                        if (code in 200..399) "Connected (HTTP $code)" else "Server returned HTTP $code"
+                    } catch (e: Exception) {
+                        "Connection error: ${e.localizedMessage ?: "cannot reach server"}"
+                    }
+                    runOnUiThread { status.text = msg }
+                }.start()
+            }
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (input.text.isNullOrBlank()) {
+                    status.text = "Enter a URL"
+                    return@setOnClickListener
+                }
+                val url = sanitize(input.text.toString())
+                preferencesManager.selectedDomain = url
+                dialog.dismiss()
+                if (::webView.isInitialized) webView.loadUrl(url)
+            }
+        }
+        dialog.show()
+    }
 
     internal fun showPrinterSettingsPopup() {
         val profile = printerConfigManager.getLastUsedProfile()

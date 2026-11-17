@@ -179,7 +179,7 @@ class PreferencesManager(private val context: Context) {
                 "https://${savedDomain.trimEnd('/')}/"
             }
         } else {
-            com.elintpos.wrapper.config.AppConfig.Network.DEFAULT_BASE_URL
+            ""
         }
     }
     
@@ -200,7 +200,7 @@ class PreferencesManager(private val context: Context) {
                 savedDomain.replace(Regex("^https?://"), "").split('/')[0].trimEnd('/')
             }
         } else {
-            com.elintpos.wrapper.config.AppConfig.Network.DEFAULT_DOMAIN
+            ""
         }
     }
 }

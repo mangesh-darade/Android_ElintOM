@@ -98,11 +98,9 @@ object AppConfig {
         /** Default domain API URL */
         const val DOMAIN_API_URL = "https://ElintOm.Elintpos.in/android_api/getUserDomain"
         
-        /** Default domain fallback */
-        const val DEFAULT_DOMAIN = "newmanokamanareadymade.elintpos.in"
-        
-        /** Default base URL */
-        val DEFAULT_BASE_URL = "https://$DEFAULT_DOMAIN/"
+        /** Merchant directory: resolves an Android code to the shop URL (POST attendance_api/setup) */
+        const val SETUP_MASTER_URL = "https://superadmin.elintom.us/"
+
     }
     
     /**
