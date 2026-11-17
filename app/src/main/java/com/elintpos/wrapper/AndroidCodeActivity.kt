@@ -149,7 +149,8 @@ class AndroidCodeActivity : ComponentActivity() {
                 c.doOutput = true
                 c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 c.setRequestProperty("Accept", "application/json")
-                c.outputStream.use { it.write("android_code=${URLEncoder.encode(code, "UTF-8")}".toByteArray()) }
+                // app=order_taking: this is the ElintPOS app, so use the POS / order-taking device code (not the attendance code).
+                c.outputStream.use { it.write("android_code=${URLEncoder.encode(code, "UTF-8")}&app=order_taking".toByteArray()) }
                 val stream = if (c.responseCode in 200..299) c.inputStream else c.errorStream
                 val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
                 if (json.optString("status").equals("success", true) && json.optString("url").isNotBlank()) {
