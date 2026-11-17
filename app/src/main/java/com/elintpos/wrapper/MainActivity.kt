@@ -854,9 +854,11 @@ class MainActivity : ComponentActivity() {
                 isUserGesture: Boolean,
                 resultMsg: android.os.Message?
             ): Boolean {
-				val transport = resultMsg?.obj as? WebView.WebViewTransport
-				transport?.webView = this@MainActivity.webView
-				resultMsg?.sendToTarget()
+				// window.open() needs its OWN WebView. Handing back the main WebView makes the system
+				// WebView throw "Parent WebView cannot host its own popup window" and the app crashes.
+				val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+				transport.webView = createPopupWebView()
+				resultMsg.sendToTarget()
 				return true
 			}
 
@@ -884,6 +886,70 @@ class MainActivity : ComponentActivity() {
             override fun onConsoleMessage(message: android.webkit.ConsoleMessage?): Boolean {
                 Log.d(TAG, "Console: ${message?.message()} @ ${message?.sourceId()}:${message?.lineNumber()}")
 				return super.onConsoleMessage(message)
+			}
+		}
+	}
+
+	/** WebView used for window.open() popups (for example the KOT print window). One at a time. */
+	private var popupWebView: WebView? = null
+
+	/**
+	 * Print inside a popup: send the popup's HTML to the thermal printer through the JS bridge
+	 * instead of window.print(), which does nothing useful in a hidden WebView.
+	 */
+	private val popupPrintScript = """
+		(function() {
+			if (window.__elintPopupPrint) return;
+			window.__elintPopupPrint = true;
+			window.print = function() {
+				try {
+					if (window.ElintPOSNative && ElintPOSNative.printHtmlInvoice) {
+						ElintPOSNative.printHtmlInvoice('<!DOCTYPE html>' + document.documentElement.outerHTML, 'auto');
+					}
+				} catch (e) {}
+			};
+		})();
+	"""
+
+	private fun createPopupWebView(): WebView {
+		popupWebView?.let { closePopupWebView(it) }
+		val popup = WebView(this)
+		popup.settings.javaScriptEnabled = true
+		popup.settings.domStorageEnabled = true
+		popup.settings.defaultTextEncodingName = "utf-8"
+		popup.addJavascriptInterface(jsBridge, "ElintPOSNative")
+		popup.webViewClient = object : WebViewClient() {
+			override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+				// window.open("https://...") or target=_blank: show that page in the main WebView.
+				val target = request?.url?.toString().orEmpty()
+				if (target.startsWith("http://") || target.startsWith("https://")) {
+					if (::webView.isInitialized) webView.loadUrl(target)
+					view?.let { closePopupWebView(it) }
+					return true
+				}
+				return false
+			}
+
+			override fun onPageFinished(view: WebView?, url: String?) {
+				view?.evaluateJavascript(popupPrintScript, null)
+			}
+		}
+		popup.webChromeClient = object : WebChromeClient() {
+			override fun onCloseWindow(window: WebView?) {
+				window?.let { closePopupWebView(it) }
+			}
+		}
+		popupWebView = popup
+		return popup
+	}
+
+	private fun closePopupWebView(popup: WebView) {
+		if (popupWebView === popup) popupWebView = null
+		popup.post {
+			try {
+				popup.stopLoading()
+				popup.destroy()
+			} catch (_: Exception) {
 			}
 		}
 	}
