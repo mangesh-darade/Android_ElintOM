@@ -582,7 +582,11 @@ class UnifiedPrinterHandler(private val context: Context) {
      * @param preferType Preferred printer type (optional)
      * @return PrintResult with success status and message
      */
-    fun printRasterBitmap(bitmap: android.graphics.Bitmap, preferType: String? = null): PrintResult {
+    fun printRasterBitmap(
+        bitmap: android.graphics.Bitmap,
+        preferType: String? = null,
+        feedLines: Int = 3
+    ): PrintResult {
         val profile = getPrinterProfile(preferType)
             ?: return PrintResult(false, "No printer configured. Please configure a printer in settings.")
         val connectResult = connectToPrinter(profile)
@@ -591,16 +595,17 @@ class UnifiedPrinterHandler(private val context: Context) {
             when (profile.type) {
                 PrinterConfigManager.TYPE_USB -> {
                     val printer = usbPrinter ?: return PrintResult(false, "USB printer not connected")
-                    printer.printImage(bitmap, profile.paperWidth)
+                    printer.printImage(bitmap, profile.paperWidth, feedLines)
                     PrintResult(true, "Invoice printed")
                 }
                 PrinterConfigManager.TYPE_BLUETOOTH -> {
                     val printer = bluetoothPrinter ?: return PrintResult(false, "Bluetooth printer not connected")
-                    printer.printImage(bitmap, profile.paperWidth)
+                    printer.printImage(bitmap, profile.paperWidth, feedLines)
                     PrintResult(true, "Invoice printed")
                 }
                 PrinterConfigManager.TYPE_LAN -> {
                     val printer = lanPrinter ?: return PrintResult(false, "LAN printer not connected")
+                    // LAN printImage has no cut, so it keeps its own tear-off feed.
                     printer.printImage(bitmap, profile.paperWidth)
                     PrintResult(true, "Invoice printed")
                 }

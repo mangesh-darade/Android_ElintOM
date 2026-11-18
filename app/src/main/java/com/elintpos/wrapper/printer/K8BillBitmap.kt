@@ -399,6 +399,8 @@ object K8BillBitmap {
             ?: throw IllegalStateException("K8 bill raster needs an Activity")
         val width = widthPx.coerceAtLeast(8)
         val document = tightenViewport(html, width)
+        // KOT: no blank above the ticket (the Top gap setting is not used), a little below it.
+        val pad = if (K8BillLayout.isKitchenTicket(html)) 0 else -1
         val latch = CountDownLatch(1)
         val bitmapRef = AtomicReference<Bitmap>()
         val errorRef = AtomicReference<Throwable>()
@@ -444,7 +446,7 @@ object K8BillBitmap {
                 val pageStarted = AtomicBoolean(false)
                 fun startPolling() {
                     if (pageStarted.compareAndSet(false, true)) {
-                        handler.post { pollHeight(webView, width, holder, root, done, bitmapRef, errorRef, latch, handler) }
+                        handler.post { pollHeight(webView, width, pad, holder, root, done, bitmapRef, errorRef, latch, handler) }
                     }
                 }
                 webView.webViewClient = object : WebViewClient() {
@@ -538,6 +540,7 @@ object K8BillBitmap {
     private fun pollHeight(
         webView: WebView,
         width: Int,
+        pad: Int,
         holder: FrameLayout,
         root: ViewGroup,
         done: AtomicBoolean,
@@ -575,7 +578,7 @@ object K8BillBitmap {
                         Log.d(TAG, "Bill measure attempt=$attempt height=$current scroll=$scroll content=${webView.contentHeight} scale=$scale pending=$pending")
                     }
                     if (K8BillLayout.readyToCapture(current, stableNow, attempt, pending > 0)) {
-                        captureNow(webView, width, current, holder, root, done, bitmapRef, errorRef, latch)
+                        captureNow(webView, width, pad, current, holder, root, done, bitmapRef, errorRef, latch)
                     } else {
                         handler.postDelayed(this, POLL_MS)
                     }
@@ -597,6 +600,7 @@ object K8BillBitmap {
     private fun captureNow(
         webView: WebView,
         width: Int,
+        pad: Int,
         reportedHeight: Int,
         holder: FrameLayout,
         root: ViewGroup,
@@ -621,7 +625,9 @@ object K8BillBitmap {
             canvas.drawColor(Color.WHITE)
             webView.draw(canvas)
             val gaps = PreferencesManager(webView.context)
-            val bitmap = cropBlank(raw, gaps.printTopGapDots, 6)
+            val topPad = if (pad >= 0) pad else gaps.printTopGapDots
+            val bottomPad = if (pad >= 0) K8BillLayout.paperPxToDots(16f) else 6
+            val bitmap = cropBlank(raw, topPad, bottomPad)
             if (bitmap !== raw && !raw.isRecycled) raw.recycle()
             if (!hasInk(bitmap)) {
                 bitmap.recycle()
@@ -740,6 +746,92 @@ object K8BillBitmap {
                 border: none !important;
             }
         """
+        val isKot = K8BillLayout.isKitchenTicket(html)
+        // KOT: header centred, rule under the date, items at body size,
+        // "Items" left and "Qty" right (the web page sets items to 11px).
+        // Font and spacing follow the paper: body is ~22px on 58mm (384 dots)
+        // and ~33px on 80mm (576 dots); spacing is in em so it scales with it.
+        val qtyShare = if (width < PrinterConfigManager.PAPER_80MM) 30 else 24
+        // KOT font sizes as px on paper: KOT No. 13px bold, header and the
+        // Items/Qty heading 12px, product name and qty 10px. 2px side margin.
+        val kotNoFont = K8BillLayout.paperPxToDots(13f)
+        val kotTextFont = K8BillLayout.paperPxToDots(12f)
+        val kotItemFont = K8BillLayout.paperPxToDots(10f)
+        val kotSide = K8BillLayout.paperPxToDots(2f)
+        val kotCss = if (isKot) """
+            html body {
+                padding: 0 ${kotSide}px ${K8BillLayout.paperPxToDots(20f)}px !important;
+                box-sizing: border-box !important;
+            }
+            #order_span {
+                display: block !important;
+                text-align: center !important;
+                padding: 0 0 0.25em !important;
+                margin: 0 0 0.2em !important;
+                font-size: ${body}px !important;
+                border-bottom: 2px solid #000000 !important;
+            }
+            #order_span > span {
+                display: block !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            /* The <br> between "KOT No." and the customer is a flex item and adds a blank line. */
+            #order_span > span > br { display: none !important; }
+            #order_span strong {
+                display: block !important;
+                font-size: ${kotTextFont}px !important;
+                font-weight: 400 !important;
+                line-height: 1.25 !important;
+                margin: 0 !important;
+            }
+            #order_span strong:first-of-type:not(:last-of-type) {
+                font-size: ${kotNoFont}px !important;
+                font-weight: 700 !important;
+                margin: 0 0 0.1em !important;
+            }
+            #order_span ~ div, #order_span ~ strong, .ttt {
+                font-size: ${kotTextFont}px !important;
+                line-height: 1.3 !important;
+                text-align: center !important;
+                margin: 0 !important;
+            }
+            #order_span ~ div strong { font-weight: 700 !important; }
+            table#order-table {
+                width: 100% !important;
+                table-layout: fixed !important;
+                border-collapse: collapse !important;
+                border: none !important;
+                margin: 0.2em 0 0 !important;
+            }
+            #order-table th, #order-table td {
+                border: none !important;
+                padding: 0.1em 0.15em !important;
+                font-size: ${kotItemFont}px !important;
+                line-height: 1.3 !important;
+                vertical-align: top !important;
+                background: #ffffff !important;
+                word-wrap: break-word !important;
+                overflow-wrap: anywhere !important;
+            }
+            #order-table td span { font-size: inherit !important; }
+            #order-table td br { display: none !important; }
+            #order-table thead th {
+                font-size: ${kotTextFont}px !important;
+                font-weight: 700 !important;
+                border-bottom: 2px solid #000000 !important;
+            }
+            #order-table th:first-child, #order-table td:first-child {
+                width: ${100 - qtyShare}% !important;
+                text-align: left !important;
+            }
+            #order-table th:last-child, #order-table td:last-child {
+                width: ${qtyShare}% !important;
+                text-align: right !important;
+                white-space: nowrap !important;
+            }
+            .btn_back, .page-break { display: none !important; }
+        """ else ""
         val viewport = """<meta name="viewport" content="width=$width, initial-scale=1">"""
         val fit = """<style id="k8-fit">
             html, body {
@@ -947,8 +1039,10 @@ object K8BillBitmap {
                 display: table !important;
                 clear: both !important;
             }
+            $kotCss
         </style>"""
-        val stripped = html
+        val source = if (isKot) K8BillLayout.stripKotBullets(html) else html
+        val stripped = source
             .replace(Regex("""<script\b[^>]*>[\s\S]*?</script>""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""<noscript\b[^>]*>[\s\S]*?</noscript>""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""<link\b[^>]*>""", RegexOption.IGNORE_CASE), "")

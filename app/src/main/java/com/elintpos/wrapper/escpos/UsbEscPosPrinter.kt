@@ -117,7 +117,7 @@ class UsbEscPosPrinter(private val context: Context) {
 	 * @param width Target width in dots (e.g., 384 for 58mm, 576 for 80mm)
 	 */
 	@Throws(IOException::class)
-	fun printImage(bitmap: android.graphics.Bitmap, width: Int = 384) {
+	fun printImage(bitmap: android.graphics.Bitmap, width: Int = 384, feedLines: Int = 3) {
 		val conn = connection ?: throw IOException("Not connected")
 		val out = endpointOut ?: throw IOException("No OUT endpoint")
 
@@ -171,7 +171,8 @@ class UsbEscPosPrinter(private val context: Context) {
 			}
 			top += band
 		}
-		write(byteArrayOf(0x1B, 0x64, 0x03))
+		// GS V 66 0 below already feeds the last line past the cutter; feedLines is extra paper.
+		if (feedLines > 0) write(byteArrayOf(0x1B, 0x64, feedLines.coerceAtMost(255).toByte()))
 		write(byteArrayOf(0x1D, 0x56, 0x42, 0x00))
 		if (target !== bitmap && !target.isRecycled) target.recycle()
 	}

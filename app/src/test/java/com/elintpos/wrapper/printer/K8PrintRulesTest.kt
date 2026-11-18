@@ -224,4 +224,31 @@ class K8PrintRulesTest {
         )
         assertEquals("/dev/ttyS3", ports.first())
     }
+
+    @Test
+    fun kitchenTicketIsDetectedByItsOrderTable() {
+        val kot = """<span id="order_span">KOT No.: 4</span><table id="order-table" class="prT"></table>"""
+        assertTrue(K8BillLayout.isKitchenTicket(kot))
+        assertFalse(K8BillLayout.isKitchenTicket("""<table class="table"><tr><td>Bill</td></tr></table>"""))
+    }
+
+    @Test
+    fun kitchenTicketItemsLoseTheBullet() {
+        val row = """<tr class="row_264"><td><span style="font-size:11px;"> • Garlic Bread</span><br></td></tr>"""
+        assertEquals(
+            """<tr class="row_264"><td><span style="font-size:11px;">Garlic Bread</span><br></td></tr>""",
+            K8BillLayout.stripKotBullets(row)
+        )
+        val entity = """<td><span>&bull; Pizza</span></td>"""
+        assertEquals("""<td><span>Pizza</span></td>""", K8BillLayout.stripKotBullets(entity))
+    }
+
+    @Test
+    fun kitchenTicketFontsArePaperPixels() {
+        assertEquals(27, K8BillLayout.paperPxToDots(13f))
+        assertEquals(25, K8BillLayout.paperPxToDots(12f))
+        assertEquals(23, K8BillLayout.paperPxToDots(11f))
+        assertEquals(21, K8BillLayout.paperPxToDots(10f))
+        assertEquals(4, K8BillLayout.paperPxToDots(2f))
+    }
 }

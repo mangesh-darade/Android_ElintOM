@@ -150,7 +150,9 @@ class HtmlInvoicePrinter(private val context: Context) {
                 val printed = printer.printBitmap(bitmap, cutMode, topGapApplied = true)
                 UnifiedPrinterHandler.PrintResult(printed.success, printed.message)
             } else {
-                unifiedPrinterHandler.printRasterBitmap(bitmap, preferType)
+                // KOT: no extra feed after the ticket, only the feed to the cutter.
+                val feedLines = if (K8BillLayout.isKitchenTicket(htmlContent)) 0 else 3
+                unifiedPrinterHandler.printRasterBitmap(bitmap, preferType, feedLines)
             }
         } finally {
             if (bitmap !== rendered && !rendered.isRecycled) rendered.recycle()

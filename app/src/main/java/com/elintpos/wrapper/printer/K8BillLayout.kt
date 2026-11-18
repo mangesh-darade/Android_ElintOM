@@ -1,5 +1,7 @@
 package com.elintpos.wrapper.printer
 
+import kotlin.math.roundToInt
+
 /**
  * Pure layout decisions for a K8 bill bitmap.
  * The WebView capture uses these so a zero or one-line height is not treated as a finished bill.
@@ -51,6 +53,29 @@ object K8BillLayout {
         val dotsPerPt = if (paperDots >= 500) 2.8f else 1.85f
         return (pt * dotsPerPt).toInt().coerceIn(18, 42)
     }
+
+    /**
+     * Kitchen order ticket from screens/display (get_print_html): it has
+     * #order_span for the header and #order-table for the items.
+     */
+    fun isKitchenTicket(html: String): Boolean =
+        html.contains("id=\"order-table\"", ignoreCase = true) ||
+            html.contains("id='order-table'", ignoreCase = true) ||
+            html.contains("id=\"order_span\"", ignoreCase = true)
+
+    /**
+     * A CSS px on paper (96 per inch) in printer dots (203 dpi). The bill is
+     * drawn one dot per pixel, so "10px" must be scaled to look like 10px on
+     * paper. It is the same on 58mm and 80mm rolls.
+     */
+    fun paperPxToDots(cssPx: Float): Int = (cssPx * 203f / 96f).roundToInt()
+
+    /** The web KOT puts " • " before each item name; the paper ticket has no bullet. */
+    fun stripKotBullets(html: String): String =
+        html.replace(
+            Regex("""(<td[^>]*>\s*<span[^>]*>)\s*(?:•|&bull;|&#8226;|&#x2022;)\s*""", RegexOption.IGNORE_CASE),
+            "$1"
+        )
 
     fun readyToCapture(height: Int, stableCount: Int, attempt: Int, imagesPending: Boolean): Boolean {
         if (height < MIN_HEIGHT_PX) return false
